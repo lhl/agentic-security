@@ -12,11 +12,22 @@ LLM-based agents---systems that combine language models with tool access, memory
 
 Three findings define the current state of the field:
 
-1. **Probabilistic defenses fail under adaptive attack.** A joint OpenAI/Anthropic/DeepMind red-team effort ("The Attacker Moves Second," Oct 2025) bypassed all 12 tested model-level and detection-based defenses at >90% attack success rate. This is the single most important empirical result in the field. \[arXiv:2510.09023\]
+1. **Probabilistic defenses fail under adaptive attack.** A joint OpenAI/Anthropic/DeepMind red-team effort ("The Attacker Moves Second," Oct 2025) bypassed 12 recent model-level and detection-based defenses; adaptive attacks reached >90% attack success rate in most cases. This is the single most important empirical result in the field. \[arXiv:2510.09023\]
 
-2. **Architectural defenses work but aren't deployed.** CaMeL (Google DeepMind, Mar 2025) achieves 0% attack success rate on AgentDojo by separating control flow from data flow through capability-based security. Ten months later, production adoption remains near zero. \[arXiv:2503.18813\]
+2. **Architectural defenses work but aren't deployed.** CaMeL (Google DeepMind, arXiv Mar 2025) is not vulnerable to AgentDojo's prompt injection attacks by separating control flow from untrusted data through capability-based security. As of Feb 2026, production adoption remains limited. \[arXiv:2503.18813\]
 
 3. **Defense-in-depth is the only viable strategy.** No single layer is sufficient. The research consensus points to layered defenses: architectural isolation at the core, access control and privilege separation as enforcement, runtime verification as monitoring, and detection/filtering as outer perimeter.
+
+**Key terms (used throughout):**
+
+- **IPI (Indirect Prompt Injection):** Attacker instructions embedded in untrusted data an agent reads (webpages, emails, tool outputs).
+- **ASR (Attack Success Rate):** Fraction of attacks that achieve the attacker's objective, as defined by each paper/benchmark.
+- **Utility:** Task success rate (often reported both benign and under attack).
+- **IFC (Information Flow Control):** Track/restrict how labeled data (trusted/untrusted, public/private) can influence decisions and tool calls.
+- **MCP (Model Context Protocol):** A protocol for connecting agents to tool servers.
+- **RAG (Retrieval-Augmented Generation):** Retrieve external context (often from a vector store) and feed it into the model.
+- **MAC/ABAC:** Mandatory / attribute-based access control policy models.
+- **PDG:** Program dependence graph (data/control dependencies), used for trace-based analyses.
 
 **For practitioners:** Start with Section 5 (Production Readiness) and Section 6 (Recommended Defense Stack). For researchers: the full taxonomy begins at Section 3.
 
@@ -25,8 +36,8 @@ Three findings define the current state of the field:
 ## Table of Contents
 
 1. [Executive Summary](#executive-summary)
-2. [Threat Landscape](#threat-landscape)
-3. [Defense Taxonomy](#defense-taxonomy)
+2. [Threat Landscape](#2-threat-landscape)
+3. [Defense Taxonomy](#3-defense-taxonomy)
    - 3.1 [Secure Architectures by Construction](#31-secure-architectures-by-construction)
    - 3.2 [Access Control and Governance](#32-access-control-and-governance)
    - 3.3 [Runtime Verification and Policy Enforcement](#33-runtime-verification-and-policy-enforcement)
@@ -54,13 +65,13 @@ LLM agents face a fundamental architectural vulnerability: **they cannot disting
 - **Memory poisoning:** Persistent compromise via poisoned entries in long-term memory or RAG stores. Attacks persist across sessions. \[arXiv:2407.12784, arXiv:2503.03704, arXiv:2512.16962\]
 - **Tool/function supply-chain attacks:** Poisoned tool libraries or MCP servers that hijack agent behavior at the integration layer. \[arXiv:2509.24408\]
 - **Privilege escalation and confused deputy:** Agents perform actions exceeding least privilege; in multi-agent systems, one agent tricks another into unauthorized operations. \[arXiv:2601.11893, arXiv:2503.15547\]
-- **Data exfiltration:** Attackers redirect sensitive data to external endpoints via hijacked tool calls or side channels. \[arXiv:2503.18813\]
+- **Data exfiltration:** Hijacked tool calls (or malicious tools) can route sensitive data to attacker-controlled endpoints; side channels can leak information even when direct exfil is blocked. \[arXiv:2302.12173, arXiv:2306.05499, arXiv:2509.10540\]
 - **Visual/rendered prompt injection:** Attacks embedded in rendered UI elements targeting computer-use agents. \[arXiv:2506.02456, arXiv:2505.21936\]
 - **Browser-specific attacks:** Prompt injection tailored to web-browsing agents. \[arXiv:2511.20597\]
 
 ### The Validation That Changed the Field
 
-**"The Attacker Moves Second"** (Nasr et al., Oct 2025) is a joint red-team effort by researchers from OpenAI, Anthropic, and Google DeepMind. They applied adaptive attacks---iteratively refined based on defense behavior---against 12 published defenses across prompt injection and jailbreak domains. Every probabilistic defense was bypassed at >90% attack success rate. This paper is the empirical foundation for the architectural defense paradigm: if adaptive adversaries can bypass model-level robustness, security must be enforced outside the model. \[arXiv:2510.09023\]
+**"The Attacker Moves Second"** (Nasr et al., Oct 2025) is a joint red-team effort by researchers from OpenAI, Anthropic, and Google DeepMind. They applied adaptive attacks---iteratively refined based on defense behavior---against 12 published defenses across prompt injection and jailbreak domains. Across most defenses, adaptive attacks reached >90% attack success rate; none of the 12 defenses was robust. This paper is the empirical foundation for the architectural defense paradigm: if adaptive adversaries can bypass model-level robustness, security must be enforced outside the model. \[arXiv:2510.09023\]
 
 Concurrent work reinforces this: **AgentDyn** (Feb 2026) shows many defenses that appear effective on static benchmarks are overfit and fail on open-ended, dynamic tasks. \[arXiv:2602.03117\]
 
@@ -70,7 +81,7 @@ Concurrent work reinforces this: **AgentDyn** (Feb 2026) shows many defenses tha
 |:------|:-----|:-----------------|
 | Greshake et al., "Not What You've Signed Up For" \[arXiv:2302.12173\] | 2023 | Foundational paper on indirect prompt injection taxonomy |
 | Perez & Ribeiro, "Ignore Previous Prompt" \[arXiv:2211.09527\] | 2022 | First systematic prompt injection attack taxonomy |
-| Liu et al., HouYi \[arXiv:2306.05499\] | 2023 | Empirical prompt injection on commercial apps; black-box attack framework |
+| Liu et al., HouYi \[arXiv:2306.05499\] | 2025 | Empirical prompt injection on commercial apps; black-box attack framework |
 | Pasquini et al., Neural Exec \[arXiv:2403.03792\] | 2024 | Learned execution triggers that sidestep handcrafted-string detectors |
 | Chen et al., AgentPoison \[arXiv:2407.12784\] | 2024 | Foundational attack on agent memory/RAG stores |
 | Yang et al., MINJA \[arXiv:2503.03704\] | 2026 | Practical query-only persistent memory injection |
@@ -80,7 +91,7 @@ Concurrent work reinforces this: **AgentDyn** (Feb 2026) shows many defenses tha
 | Peng et al., RedTeamCUA \[arXiv:2505.21936\] | 2026 | Realistic adversarial testing in hybrid web-OS environments |
 | Lee et al., BrowseSafe \[arXiv:2511.20597\] | 2025 | Browser-agent-specific prompt injection threats and defenses |
 | Yi et al., EchoLeak \[arXiv:2509.10540\] | 2025 | First real-world zero-click prompt injection exploit in production |
-| Nasr et al., "The Attacker Moves Second" \[arXiv:2510.09023\] | 2025 | Meta-evaluation: adaptive attacks bypass 12 defenses at >90% ASR |
+| Nasr et al., "The Attacker Moves Second" \[arXiv:2510.09023\] | 2025 | Meta-evaluation: adaptive attacks bypass 12 defenses; >90% ASR in most cases |
 | He et al., AgentDyn \[arXiv:2602.03117\] | 2026 | Dynamic benchmark showing static-benchmark overfitting |
 
 ---
@@ -109,7 +120,7 @@ The field has converged on seven defense categories. No single category is suffi
 
 **Synthesis:**
 
-- **CaMeL** is the landmark paper. A Privileged LLM (P-LLM) generates plans as restricted Python; a Quarantined LLM (Q-LLM) processes untrusted data with no tool access. A custom interpreter tracks data provenance through capability tokens. Result: 0% ASR on AgentDojo with 77% utility (vs. 84% undefended). Cost: ~2.8x token overhead. \[arXiv:2503.18813\]
+- **CaMeL** is the landmark paper. A Privileged LLM (P-LLM) generates plans as restricted Python; a Quarantined LLM (Q-LLM) processes untrusted data with no tool access. A custom interpreter tracks data provenance through capability tokens. Result: 0 successful prompt injection attacks on AgentDojo's attack suite; solves 77% of AgentDojo tasks with provable security (vs. 84% undefended). Cost: ~2.8x token overhead. \[arXiv:2503.18813\]
 - **IsolateGPT/SecGPT** pioneered hub-and-spoke execution isolation, but **ACE** (NDSS 2026) later demonstrated three bypass attacks against it, showing isolation alone is insufficient without planning integrity guarantees. \[arXiv:2403.04960, arXiv:2504.20984\]
 - **Type-directed privilege separation** extends the Dual LLM pattern by allowing data flow between P-LLM and Q-LLM only for non-instruction-bearing types (integers, booleans, enums). This recovers functionality the original pattern sacrificed. \[arXiv:2509.25926\]
 - **AirGapAgent** applies contextual integrity and data minimization---the agent only accesses task-necessary data. Strong privacy architecture. \[arXiv:2405.05175\]
@@ -118,7 +129,7 @@ The field has converged on seven defense categories. No single category is suffi
 
 | Paper | Year | Venue | Code | Key Contribution |
 |:------|:-----|:------|:-----|:-----------------|
-| CaMeL \[arXiv:2503.18813\] | 2025 | Preprint | [github](https://github.com/google-research/camel-prompt-injection) | IFC + capabilities; 0% ASR, 77% utility on AgentDojo |
+| CaMeL \[arXiv:2503.18813\] | 2025 | Preprint | [github](https://github.com/google-research/camel-prompt-injection) | IFC + capabilities; eliminates AgentDojo prompt injection attacks; 77% tasks solved w/ provable security |
 | IsolateGPT/SecGPT \[arXiv:2403.04960\] | 2025 | NDSS 2025 | [github](https://github.com/llm-platform-security/SecGPT) | Hub-and-spoke execution isolation; LlamaIndex pack |
 | ACE \[arXiv:2504.20984\] | 2025 | NDSS 2026 | -- | Breaks IsolateGPT; trusted-planning fix |
 | Type-Directed Separation \[arXiv:2509.25926\] | 2025 | Preprint | -- | Type system as security boundary for Dual LLM |
@@ -202,6 +213,7 @@ The field has converged on seven defense categories. No single category is suffi
 
 - **LlamaFirewall** (Meta) is the most mature deployed system. Modular policy engine with PromptGuard 2 (BERT-style classifier), AlignmentCheck (CoT auditor), and CodeShield (static analysis). Production-deployed at Meta. However, its probabilistic components are subject to the >90% adaptive bypass rates. \[arXiv:2505.03574\]
 - **MELON** uses dual execution paths (original + masked run) to detect attacks by causal independence: if the same tool call appears regardless of user intent, it's attack-driven. 0.24% ASR but 2x API cost. ICML 2025. \[arXiv:2502.05174\]
+- **Spotlighting** is a prompt-only defense that can saturate static benchmarks but remains brittle under adaptive attack (e.g., >95% ASR under adaptive evaluation). \[arXiv:2403.14720, arXiv:2510.09023\]
 - **CommandSans** performs token-level instruction removal from data---non-blocking sanitization with strong empirical results across benchmarks. \[arXiv:2510.08829\]
 - **DataFilter** strips malicious instructions from retrieved data while preserving utility. Model-agnostic. \[arXiv:2510.19207\]
 - **Tool Result Parsing** targets specifically the tool-to-agent data flow vector. \[arXiv:2601.04795\]
@@ -237,18 +249,18 @@ The field has converged on seven defense categories. No single category is suffi
 
 - **StruQ** introduced explicit instruction/data channels via special formatting + fine-tuning. The foundational model-level approach. \[arXiv:2402.06363\]
 - **SecAlign** uses preference optimization: the model learns to prefer the legitimate instruction over injected content. Strong training-time defense. \[arXiv:2410.05451\]
-- **Meta SecAlign** (Jul 2025) builds on SecAlign to produce an open secure foundation model with broad security/utility evaluation across benchmarks. The most practical model-hardening result to date. \[arXiv:2507.02735\]
+- **Meta SecAlign** builds on SecAlign to produce an open secure foundation model with broad security/utility evaluation across benchmarks. The most practical model-hardening result to date. \[arXiv:2507.02735\]
 - **DRIP** operates at the representation level: editing instruction-like semantics out of data tokens while reinforcing intended instructions via residual instruction fusion. \[arXiv:2511.00447\]
-- **Instruction Hierarchy** (OpenAI, deployed in GPT-4o) trains models to prioritize privileged instructions. Despite deployment, CaMeL showed GPT-4o Mini with instruction hierarchy still fails 276 attacks in AgentDojo. \[arXiv:2404.13208\]
+- **Instruction Hierarchy** trains models to prioritize privileged instructions when instructions conflict. CaMeL reports that GPT-4o Mini's native tool-calling stack (which implements instruction hierarchy) remains vulnerable in AgentDojo, while GPT-4o Mini with CaMeL is not. \[arXiv:2404.13208, arXiv:2503.18813\]
 - **Instructional Segment Embedding** improves safety via embedding-level hierarchy. \[arXiv:2410.09102\]
 
 | Paper | Year | Venue | Code | Key Contribution |
 |:------|:-----|:------|:-----|:-----------------|
-| Meta SecAlign \[arXiv:2507.02735\] | 2025 | Preprint | -- | Open secure foundation model |
+| Meta SecAlign \[arXiv:2507.02735\] | 2026 | Preprint | -- | Open secure foundation model |
 | SecAlign \[arXiv:2410.05451\] | 2025 | Preprint | -- | Preference optimization for injection resistance |
 | StruQ \[arXiv:2402.06363\] | 2024 | Preprint | -- | Structured instruction/data separation |
 | DRIP \[arXiv:2511.00447\] | 2025 | Preprint | -- | Representation-level de-instructionalization |
-| Instruction Hierarchy \[arXiv:2404.13208\] | 2024 | Preprint | -- | Deployed in GPT-4o; privilege ordering |
+| Instruction Hierarchy \[arXiv:2404.13208\] | 2024 | Preprint | -- | Privilege ordering via hierarchical instruction following |
 | ISE \[arXiv:2410.09102\] | 2025 | Preprint | -- | Embedding-level instruction hierarchy |
 
 ---
@@ -302,7 +314,7 @@ The field's evaluation infrastructure has grown rapidly but still has significan
 | **AgentDojo** \[arXiv:2406.13352\] | 2024 | NeurIPS 2024 D&B | Dynamic agentic security tasks (Workspace, Banking, Travel, Slack); most common evaluation point |
 | **ASB** \[arXiv:2410.02644\] | 2025 | ICLR 2025 | Broad benchmark including memory, tool, and backdoor perspectives |
 | **InjecAgent** \[arXiv:2403.02691\] | 2024 | Preprint | Early agent-specific IPI benchmark across tools |
-| **BIPIA** \[arXiv:2312.14197\] | 2024 | Preprint | First systematic IPI benchmark |
+| **BIPIA** \[arXiv:2312.14197\] | 2025 | Preprint | First systematic IPI benchmark |
 | **AgentDyn** \[arXiv:2602.03117\] | 2026 | Preprint | Dynamic open-ended benchmark; shows static-benchmark overfitting |
 | **ToolSafe** \[arXiv:2601.10156\] | 2026 | Preprint | Tool invocation safety evaluation + step-level guardrail |
 | **PromptShield** \[arXiv:2501.15145\] | 2025 | Preprint | Deployable detection benchmark with low-FPR framing |
@@ -310,19 +322,21 @@ The field's evaluation infrastructure has grown rapidly but still has significan
 | **SaTML CTF** | 2024 | NeurIPS 2024 | Practical prompt injection competition |
 | **SPML** \[arXiv:2402.11755\] | 2024 | Preprint | DSL-based task deviation detection benchmark |
 
+Note: prompt-only defenses such as **Spotlighting** can appear effective on static evaluations, but break under adaptive attack. \[arXiv:2403.14720, arXiv:2510.09023\]
+
 ---
 
 ## 5. Production Readiness
 
-**The reality check:** Of 78 papers surveyed, exactly one framework has confirmed production deployment.
+**The reality check:** Of 78 papers surveyed, exactly one framework explicitly reports production deployment.
 
 ### Framework Comparison Matrix
 
-| Framework | Security Model | Deterministic? | Open Source | Production? | Venue |
+| Framework | Security Model | Deterministic? | Open Source | Reported Production? | Venue |
 |:----------|:---------------|:---------------|:------------|:------------|:------|
 | **LlamaFirewall** | Layered detection | Mixed | Yes ([PurpleLlama](https://github.com/meta-llama/PurpleLlama/tree/main/LlamaFirewall)) | **Yes (Meta)** | Preprint |
 | **CaMeL** | IFC + Capabilities | Yes | Yes ([google-research](https://github.com/google-research/camel-prompt-injection)) | No (research artifact) | Preprint |
-| **IsolateGPT/SecGPT** | Execution isolation | Partial | Yes ([SecGPT](https://github.com/llm-platform-security/SecGPT)) | LlamaIndex Pack | NDSS 2025 |
+| **IsolateGPT/SecGPT** | Execution isolation | Partial | Yes ([SecGPT](https://github.com/llm-platform-security/SecGPT)) | No (LlamaIndex pack) | NDSS 2025 |
 | **Progent** | Least privilege DSL | Yes (policies) | Yes ([sunblaze-ucb](https://github.com/sunblaze-ucb/progent)) | No | Preprint |
 | **MELON** | Causal independence | No (detection) | Yes ([MELON](https://github.com/kaijiezhu11/MELON)) | No | ICML 2025 |
 | **ACE** | Trusted planning + IFC | Yes | No | No | NDSS 2026 |
@@ -415,7 +429,7 @@ Based on the surveyed research, a production agent system should implement as ma
 
 ### Structural Challenges
 
-- **Side-channel attacks:** Most defenses focus on direct data flow but neglect timing, token count, loop iteration, and response structure side channels. CaMeL's STRICT mode is the only mitigation. \[arXiv:2503.18813\]
+- **Side-channel attacks:** Most defenses focus on direct data flow but neglect timing, token count, loop iteration, and response structure side channels. CaMeL's STRICT mode is one of the few concrete mitigations proposed so far. \[arXiv:2503.18813\]
 
 - **Performance and cost:** Dual-LLM architectures impose ~2.8x token overhead. Plan-template caching \[arXiv:2505.22852\] is promising but unproven at scale.
 
@@ -433,6 +447,8 @@ Based on the surveyed research, a production agent system should implement as ma
 
 All papers and resources referenced in this analysis, organized by category. Importance ratings: **A** = Must-read, **B** = Important, **C** = Supplementary.
 
+Year reflects the year field in `references/bib/*.bib` (typically the latest arXiv version or publication year captured in this repo).
+
 ### Threat Model and Benchmarks
 
 | ID | Title | Year | Importance |
@@ -443,11 +459,11 @@ All papers and resources referenced in this analysis, organized by category. Imp
 | arXiv:2406.13352 | AgentDojo | 2024 | **A** |
 | arXiv:2410.02644 | Agent Security Bench (ASB) | 2025 | **A** |
 | arXiv:2602.03117 | AgentDyn | 2026 | **A** |
-| arXiv:2306.05499 | HouYi (PI against commercial apps) | 2023 | **B** |
+| arXiv:2306.05499 | HouYi (PI against commercial apps) | 2025 | **B** |
 | arXiv:2403.03792 | Neural Exec (learned triggers) | 2024 | **B** |
 | arXiv:2407.12784 | AgentPoison (memory/RAG attacks) | 2024 | **B** |
 | arXiv:2403.02691 | InjecAgent (agent-specific PI benchmark) | 2024 | **B** |
-| arXiv:2312.14197 | BIPIA (first IPI benchmark) | 2024 | **B** |
+| arXiv:2312.14197 | BIPIA (first IPI benchmark) | 2025 | **B** |
 | arXiv:2503.03704 | MINJA (memory injection) | 2026 | **B** |
 | arXiv:2512.16962 | MemoryGraft (experience poisoning) | 2025 | **B** |
 | arXiv:2509.24408 | FuncPoison (tool supply chain) | 2025 | **B** |
@@ -456,6 +472,7 @@ All papers and resources referenced in this analysis, organized by category. Imp
 | arXiv:2511.20597 | BrowseSafe | 2025 | **B** |
 | arXiv:2509.10540 | EchoLeak (zero-click exploit) | 2025 | **B** |
 | arXiv:2510.05244 | Firewall benchmark saturation | 2025 | **B** |
+| arXiv:2403.14720 | Spotlighting | 2024 | **C** |
 | arXiv:2402.11755 | SPML (DSL for task deviation) | 2024 | **C** |
 
 ### Secure Architectures by Construction
@@ -522,7 +539,7 @@ All papers and resources referenced in this analysis, organized by category. Imp
 
 | ID | Title | Year | Importance |
 |:---|:------|:-----|:-----------|
-| arXiv:2507.02735 | Meta SecAlign | 2025 | **A** |
+| arXiv:2507.02735 | Meta SecAlign | 2026 | **A** |
 | arXiv:2410.05451 | SecAlign | 2025 | **A** |
 | arXiv:2402.06363 | StruQ | 2024 | **A** |
 | arXiv:2511.00447 | DRIP | 2025 | **B** |
