@@ -41,6 +41,16 @@ python scripts/sync_refs.py --all
 
 This scans `analysis/`, `datasets/`, and `shisad/docs/` for arXiv/OpenReview/PDF links, downloads missing PDFs into `references/papers/` (and vendor PDFs into `references/vendor/`), generates `references/papers/*.md` text snapshots, and writes BibTeX under `references/bib/`.
 
+## Reference index
+
+Generate a topic-organized Markdown index of all local references (papers/vendor/web), with title + short summary:
+
+```bash
+python scripts/build_reference_index.py
+```
+
+Output: `references/REFERENCE_INDEX.md`
+
 ## PDF text extraction
 
 `scripts/extract_pdf.py` converts PDFs to Markdown. Both `sync_refs.py --extract` and direct invocation use this script.
