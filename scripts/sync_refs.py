@@ -201,7 +201,7 @@ def classify_pdf_url(url: str, papers_dir: Path, vendor_dir: Path) -> Path:
 def run_extract(dirs: list[Path], *, force: bool) -> None:
     """Delegate text extraction to extract_pdf.py."""
     script = Path(__file__).resolve().parent / "extract_pdf.py"
-    cmd = [sys.executable, str(script)]
+    cmd = [sys.executable, str(script), "--quiet"]
     if force:
         cmd.append("--force")
     cmd.extend(str(d) for d in dirs if d.exists())

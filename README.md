@@ -75,8 +75,10 @@ pip install marker-pdf
 For GPU acceleration, use a torch build matching your hardware (CUDA, ROCm, etc.). To use marker from the conda env with the standalone script:
 
 ```bash
-mamba run -n marker python scripts/extract_pdf.py references/papers/
+mamba run --no-capture-output -n marker python scripts/extract_pdf.py references/papers/
 ```
+
+`mamba run` captures stdout/stderr by default, so progress output may not appear until the process exits unless `--no-capture-output` (alias `--live-stream`) is set.
 
 ### marker-pdf vs pdftotext
 
