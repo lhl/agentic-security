@@ -2,7 +2,12 @@
 
 Research collection on LLM agent security: prompt injection defenses, privilege separation, control planes, runtime verification, and model hardening.
 
-**[Read the full analysis (ANALYSIS.md)](ANALYSIS.md)** -- comprehensive survey of 78 papers covering the defense taxonomy, production readiness, and a recommended defense-in-depth stack.
+## Key docs
+
+- [ANALYSIS.md](ANALYSIS.md) — comprehensive survey of 78 papers covering the defense taxonomy, production readiness, and a recommended defense-in-depth stack
+- [references/REFERENCE_INDEX.md](references/REFERENCE_INDEX.md) — topic-organized index of all local references (papers/vendor/web), with title + short summary
+- [analysis/](analysis/) — cross-cutting syntheses and research notes
+- [shisad/](shisad/) — shisad security architecture docs bundle (export)
 
 ## Citation
 
@@ -14,7 +19,7 @@ If you reference this repo's summaries/analyses in academic or professional work
   title        = {agentic-security: LLM Agent Security Research Collection (Summaries and Analyses)},
   year         = {2026},
   howpublished = {GitHub repository},
-  url          = {https://github.com/shisa-ai/agentic-security},
+  url          = {https://github.com/lhl/agentic-security},
 }
 ```
 
