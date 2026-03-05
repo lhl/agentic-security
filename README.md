@@ -58,6 +58,9 @@ python scripts/extract_pdf.py --backend pdftotext references/papers/
 
 # Single file, overwrite existing:
 python scripts/extract_pdf.py --force references/papers/arxiv-2401.07612.pdf
+
+# Debug mode (show marker/pdftotext backend logs and framework warnings):
+python scripts/extract_pdf.py --debug references/papers/
 ```
 
 Backend priority (auto mode): **marker-pdf** if `marker_single` is on PATH, else **pdftotext**, else error.

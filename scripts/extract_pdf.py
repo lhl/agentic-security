@@ -19,6 +19,9 @@ Usage:
     # Quiet mode (for scripting / sync_refs.py integration):
     python scripts/extract_pdf.py --quiet --force references/papers/
 
+    # Debug mode (show backend/framework logs and warnings):
+    python scripts/extract_pdf.py --debug references/papers/
+
     # From a conda/mamba env with live logs:
     mamba run --no-capture-output -n marker python scripts/extract_pdf.py references/papers/
 """
@@ -34,19 +37,59 @@ import time
 import warnings
 from pathlib import Path
 
-# Suppress noisy GPU/framework warnings before any imports trigger them.
-os.environ.setdefault("GRPC_VERBOSITY", "ERROR")
-os.environ.setdefault("GLOG_minloglevel", "2")
-os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
-os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
-warnings.filterwarnings("ignore", message=".*Mem Efficient.*")
-warnings.filterwarnings("ignore", message=".*experimental.*")
+_DEBUG = "--debug" in sys.argv[1:] or os.environ.get("AGENTIC_SECURITY_PDF_DEBUG") == "1"
+
+# Suppress noisy GPU/framework warnings unless debug mode is enabled.
+if not _DEBUG:
+    os.environ.setdefault("GRPC_VERBOSITY", "ERROR")
+    os.environ.setdefault("GLOG_minloglevel", "2")
+    os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+    warnings.filterwarnings("ignore", message=".*Mem Efficient.*")
+    warnings.filterwarnings("ignore", message=".*experimental.*")
 
 # Force line-buffered stdout/stderr for normal pipes/terminals. Note: conda/mamba run may
 # still capture output unless --no-capture-output/--live-stream is used.
 if not os.environ.get("PYTHONUNBUFFERED"):
     sys.stdout = os.fdopen(sys.stdout.fileno(), "w", buffering=1, closefd=False)
     sys.stderr = os.fdopen(sys.stderr.fileno(), "w", buffering=1, closefd=False)
+
+
+def _strip_user_site_packages() -> None:
+    """Prevent ~/.local packages from shadowing active conda/venv dependencies."""
+    if os.environ.get("AGENTIC_SECURITY_ALLOW_USER_SITE") == "1":
+        return
+    in_managed_env = bool(os.environ.get("CONDA_PREFIX")) or (
+        sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+    )
+    if not in_managed_env:
+        return
+
+    try:
+        import site
+
+        user_site = site.getusersitepackages()
+    except Exception:
+        return
+    if not user_site:
+        return
+
+    normalized_user_site = os.path.normcase(os.path.abspath(user_site))
+    new_path: list[str] = []
+    removed = False
+    for entry in sys.path:
+        if entry and os.path.normcase(os.path.abspath(entry)) == normalized_user_site:
+            removed = True
+            continue
+        new_path.append(entry)
+
+    if removed:
+        sys.path[:] = new_path
+        os.environ.setdefault("PYTHONNOUSERSITE", "1")
+
+
+# Must run before marker/surya imports to avoid pulling incompatible ~/.local deps.
+_strip_user_site_packages()
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -80,8 +123,9 @@ def detect_backend() -> str:
 
 def _create_marker_converter():
     """Load marker models and create a reusable converter. Called once."""
-    # Suppress internal tqdm progress bars from surya/marker.
-    os.environ["TQDM_DISABLE"] = "1"
+    # Suppress internal tqdm progress bars from surya/marker unless debug is enabled.
+    if not _DEBUG:
+        os.environ["TQDM_DISABLE"] = "1"
 
     from marker.converters.pdf import PdfConverter
     from marker.models import create_model_dict
@@ -97,6 +141,9 @@ def _create_marker_converter():
 def _suppress_native_stderr():
     """Redirect fd 2 to /dev/null to silence C++ library noise (MIOpen, etc.)."""
     import contextlib
+
+    if _DEBUG:
+        return contextlib.nullcontext()
 
     @contextlib.contextmanager
     def _ctx():
@@ -133,11 +180,13 @@ def extract_marker(pdf: Path, out_md: Path, converter) -> None:
 
 def extract_pdftotext(pdf: Path, out_md: Path) -> None:
     out_md.parent.mkdir(parents=True, exist_ok=True)
+    stdout_target = None if _DEBUG else subprocess.DEVNULL
+    stderr_target = None if _DEBUG else subprocess.DEVNULL
     subprocess.run(
         ["pdftotext", "-layout", "-enc", "UTF-8", str(pdf), str(out_md)],
         check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=stdout_target,
+        stderr=stderr_target,
     )
 
 
@@ -286,8 +335,16 @@ def main(argv: list[str]) -> int:
     )
     parser.add_argument("--force", action="store_true", help="Overwrite existing .md files.")
     parser.add_argument("--quiet", "-q", action="store_true", help="Minimal output (no progress bar).")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Show backend/framework logs and warnings (disables built-in log suppression).",
+    )
 
     args = parser.parse_args(argv)
+
+    if args.debug and not _DEBUG:
+        print("warning: --debug was not detected during early startup; some early logs may still be suppressed", file=sys.stderr)
 
     if args.backend == "auto":
         backend = detect_backend()
