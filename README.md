@@ -43,22 +43,28 @@ This scans `analysis/`, `datasets/`, and `shisad/docs/` for arXiv/OpenReview/PDF
 
 ## PDF text extraction
 
-### Default: `pdftotext` snapshots (fast)
+`scripts/extract_pdf.py` converts PDFs to Markdown. Both `sync_refs.py --extract` and direct invocation use this script.
 
-`python scripts/sync_refs.py --extract` (or `--all`) generates one `*.md` per PDF using `pdftotext -layout`, alongside each PDF:
+```bash
+# Via sync (also downloads + generates bibtex):
+python scripts/sync_refs.py --all
 
-- `references/papers/*.md`
-- `references/vendor/*.md`
+# Standalone — auto-detects best available backend:
+python scripts/extract_pdf.py references/papers/
 
-These files are primarily for grep/search and quick LLM ingestion.
+# Force a specific backend:
+python scripts/extract_pdf.py --backend marker references/papers/
+python scripts/extract_pdf.py --backend pdftotext references/papers/
 
-### Higher-quality extraction with marker-pdf
+# Single file, overwrite existing:
+python scripts/extract_pdf.py --force references/papers/arxiv-2401.07612.pdf
+```
 
-[marker-pdf](https://github.com/VikParuchuri/marker) converts PDFs to structured Markdown with proper headings, tables, and layout — much better for LLM ingestion than `pdftotext`.
+Backend priority (auto mode): **marker-pdf** if `marker_single` is on PATH, else **pdftotext**, else error.
 
-#### Setup
+### marker-pdf setup
 
-Create a `marker` conda/mamba environment with PyTorch, then install marker-pdf:
+[marker-pdf](https://github.com/VikParuchuri/marker) produces structured Markdown (headings, tables, figures) — much better for LLM ingestion than pdftotext. It depends on PyTorch (CPU or GPU).
 
 ```bash
 mamba create -n marker --clone therock   # or any env with torch
@@ -66,27 +72,13 @@ mamba activate marker
 pip install marker-pdf
 ```
 
-marker-pdf depends on PyTorch (CPU or GPU). For GPU acceleration, use a torch build matching your hardware (CUDA, ROCm, etc.).
-
-#### Usage
-
-Single file:
+For GPU acceleration, use a torch build matching your hardware (CUDA, ROCm, etc.). To use marker from the conda env with the standalone script:
 
 ```bash
-mamba run -n marker marker_single references/papers/arxiv-XXXX.XXXXX.pdf \
-  --output_dir references/papers/ --disable_image_extraction
+mamba run -n marker python scripts/extract_pdf.py references/papers/
 ```
 
-Batch (all PDFs):
-
-```bash
-mamba run -n marker marker references/papers/ \
-  --output_dir references/papers/ --disable_image_extraction --skip_existing
-```
-
-Output is one `*.md` per PDF alongside the original.
-
-#### marker-pdf vs pdftotext
+### marker-pdf vs pdftotext
 
 Tested on a 7-page academic paper (arxiv-2401.07612, "Signed-Prompt"):
 

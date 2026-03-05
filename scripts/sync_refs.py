@@ -198,14 +198,14 @@ def classify_pdf_url(url: str, papers_dir: Path, vendor_dir: Path) -> Path:
     return vendor_dir / f"{host_part}-{sanitize_filename(basename)}"
 
 
-def run_pdftotext(pdf: Path, out_md: Path) -> None:
-    out_md.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        ["pdftotext", "-layout", "-enc", "UTF-8", str(pdf), str(out_md)],
-        check=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+def run_extract(dirs: list[Path], *, force: bool) -> None:
+    """Delegate text extraction to extract_pdf.py."""
+    script = Path(__file__).resolve().parent / "extract_pdf.py"
+    cmd = [sys.executable, str(script)]
+    if force:
+        cmd.append("--force")
+    cmd.extend(str(d) for d in dirs if d.exists())
+    subprocess.run(cmd, check=True)
 
 
 def pdf_title(pdf: Path) -> str | None:
@@ -416,7 +416,7 @@ def generate_misc_bib(root: Path, bib_dir: Path, pdf_url_to_path: dict[str, Path
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Sync reference PDFs + text snapshots + BibTeX for agentic-security.")
     parser.add_argument("--download", action="store_true", help="Download missing references.")
-    parser.add_argument("--extract", action="store_true", help="Generate pdftotext snapshots (*.md) next to PDFs.")
+    parser.add_argument("--extract", action="store_true", help="Generate text snapshots (*.md) next to PDFs via extract_pdf.py.")
     parser.add_argument("--bibtex", action="store_true", help="Generate BibTeX under references/bib/.")
     parser.add_argument("--all", action="store_true", help="Equivalent to --download --extract --bibtex.")
     parser.add_argument("--force", action="store_true", help="Overwrite cached BibTeX and extracted snapshots.")
@@ -475,18 +475,7 @@ def main(argv: list[str]) -> int:
             pdf_url_to_path[url] = dest
 
     if args.extract:
-        for pdf in sorted(papers_dir.glob("*.pdf")):
-            out_md = pdf.with_suffix(".md")
-            if out_md.exists() and not args.force:
-                continue
-            print(f"[md  ] {pdf.name}")
-            run_pdftotext(pdf, out_md)
-        for pdf in sorted(vendor_dir.glob("*.pdf")):
-            out_md = pdf.with_suffix(".md")
-            if out_md.exists() and not args.force:
-                continue
-            print(f"[md  ] {pdf.name}")
-            run_pdftotext(pdf, out_md)
+        run_extract([papers_dir, vendor_dir], force=args.force)
 
     if args.bibtex:
         bib_dir.mkdir(parents=True, exist_ok=True)
