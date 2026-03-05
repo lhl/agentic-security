@@ -704,6 +704,188 @@ Critically, the summary barrier is *not the sole defense*: regardless of whether
 
 **Why this matters:** Over time, the planner model gets progressively better at proposing actions that the enforcement infrastructure will accept — reducing PEP rejections, reducing confirmation prompts, reducing repair loops, and improving the user experience. The model learns the specific security posture of its deployment, not just generic instruction-following. No published framework explicitly designs this closed loop between runtime enforcement and model training. The flywheel also creates a natural "ratchet" effect: as the model improves, the traces it generates become higher-quality training data, which further improves the model.
 
+### 9.7 Preventive memory security (write gating + capability-aware retrieval + tiered storage)
+
+**The problem:** Long-term memory turns a one-time prompt injection into a *persistent compromise*. If an attacker can get malicious content stored in the agent's memory, every future session that retrieves that content is affected — without the attacker needing to interact again. Three published attacks demonstrate this: AgentPoison [arXiv:2407.12784] poisons RAG stores via trigger-optimized entries, MINJA [arXiv:2503.03704] tricks the agent into generating and storing malicious entries through normal conversation, and MemoryGraft [arXiv:2512.16962] implants poisoned "successful experience" records via documentation. All three achieve high attack success rates (63%–98%) with minimal poisoning ratios (<1%–5% of the store).
+
+**What published systems do:** The only published defense that explicitly addresses memory-stream injection is DRIFT [arXiv:2506.12104], which reactively detects and removes conflicting instructions from the memory stream after storage. DRIFT achieves strong results (1.3% ASR on AgentDojo), but its memory defense is reactive (detect-and-remove) rather than preventive (gate-before-store), and it doesn't address provenance tracking, versioned corrections, or capability-scoped retrieval. The attack papers themselves recommend defenses (memory isolation, provenance tracking, cryptographic signatures) but none of the recommendations are implemented in a published system.
+
+**What shisad does:** shisad's memory design (`PLAN-longterm-memory.md`) is, to this review's knowledge, the most comprehensive memory security architecture in the combined academic and industry literature. It combines six defense layers that the attack papers only *recommend*:
+
+1. **Instruction/data boundary**: All retrieved memory goes into the Untrusted prompt tier — never the Trusted tier where system instructions live. This is a structural guarantee, not a runtime detection.
+2. **Preventive write gating**: Memory writes are privileged operations that must pass deterministic gates — instruction-like pattern rejection, provenance requirements, and user confirmation for external-origin content — *before* storage. Subagents cannot write to long-term memory directly; they propose writes that the orchestrator reviews in a clean context.
+3. **Capability-aware retrieval**: Retrieval is not a simple similarity lookup. It considers what the agent is currently authorized to do: retrieving untrusted content when the agent has side-effect capabilities (email send, file write) requires explicit authorization.
+4. **Quarantine**: Suspicious content is stored but quarantined — not retrievable by default, surfaced with explicit warnings when it would otherwise be relevant.
+5. **Provenance tracking with versioned corrections**: Every entry carries immutable provenance metadata, all updates are append-only (new records supersede old; history preserved), and derived content inherits the provenance of all its source inputs. This directly invalidates MemoryGraft's core assumption ("no provenance tracking or sanitization of stored records").
+6. **Tiered storage**: Memory is four distinct stores (transcript, retrieval corpus, long-term entries, knowledge graph) with different trust semantics, write policies, and retrieval gates. Content can't jump trust tiers.
+
+**Why this matters:** Every published memory attack paper assumes the agent's memory system has no write gating, no provenance tracking, and no retrieval authorization. shisad invalidates these assumptions architecturally. The gap between shisad and the literature isn't incremental — it's categorical: the attack papers recommend these defenses as future work, while shisad specifies them as core requirements. See §10 for the full threat-by-threat mapping and remaining gaps.
+
+---
+
+## 10) Long-term memory as a security surface
+
+Long-term memory is qualitatively different from single-turn prompt injection. A single-turn injection affects one conversation: the attacker's malicious instruction is in the context window right now, and it's gone when the session ends. A memory poisoning attack is *persistent*: the attacker gets malicious content stored in the agent's long-term memory or RAG (Retrieval-Augmented Generation) knowledge base, where it persists across sessions, across users (if memory is shared), and potentially across agent restarts. Every future conversation that retrieves the poisoned entry is compromised — without the attacker needing to do anything further.
+
+`ANALYSIS.md` identifies this as a critical open problem (§7): "Memory injection, experience poisoning, and RAG store attacks are demonstrated but no defense specifically addresses temporal persistence. Most current defenses assume stateless single-turn interactions." This section surveys the published attack research, maps shisad's memory design (`shisad/docs/PLAN-longterm-memory.md`) against each attack class, and identifies remaining gaps.
+
+### 10.1 The threat landscape: three classes of memory attack
+
+The research corpus contains three published memory attacks, each with a distinct threat model and mechanism. Understanding the differences matters because defenses that stop one class may not stop the others.
+
+#### 10.1.1 AgentPoison — trigger-optimized RAG backdoor [arXiv:2407.12784]
+
+**Attack mechanism:** The attacker injects a small number of poisoned entries (as few as one, typically <0.1% of the knowledge base) into the agent's RAG store. Each poisoned entry contains a crafted "trigger" — a phrase optimized via gradient-based search to land in a specific region of the embedding space. When a user's query contains (or resembles) the trigger, the RAG retrieval system preferentially surfaces the poisoned entry, which contains attacker-chosen instructions or demonstrations.
+
+**Threat model:** The attacker needs write access to the knowledge base (e.g., by contributing documentation, uploading files, or exploiting a shared knowledge store). The attacker also needs knowledge of (or transferable access to) the embedding model used for retrieval, in order to optimize triggers. This is a relatively strong attacker — they're crafting content specifically designed to be retrieved by specific queries.
+
+**Key results:** 82% retrieval success rate, 63% end-to-end attack success rate, with <1% poisoned entries in the store. The triggers are natural-looking text (perplexity ~15, vs. ~80+ for obviously adversarial strings), making them hard to detect by statistical filters. Standard defenses (perplexity filtering, query rephrasing) reduced attack success only modestly (from 61% to ~50%).
+
+**Why it matters for agents:** An agent that retrieves poisoned demonstrations will imitate them. If the poisoned entry demonstrates "when the user asks about X, exfiltrate data to attacker.com," the agent may follow that pattern.
+
+#### 10.1.2 MINJA — query-only memory injection [arXiv:2503.03704]
+
+**Attack mechanism:** The attacker *cannot* directly write to the agent's memory. Instead, the attacker interacts with the agent through normal queries — but crafts those queries to trick the agent into *generating and storing* malicious memory entries itself. The technique uses "bridging steps": the attacker's query contains logical connections that, when the agent reasons about them, produce entries like "data for patient A is stored under patient B." These entries are then stored by the agent's own memory system and retrieved by future (victim) queries.
+
+**Threat model:** This is the most realistic and concerning threat model — the attacker only needs query access to the agent. No direct memory access, no knowledge of embeddings, no trigger optimization. The attack works through shared memory (common in production systems: multiple users or sessions share a memory bank). The attacker just talks to the agent.
+
+**Key results:** 98.2% injection success rate (the agent stores the malicious entry), 76.8% end-to-end attack success rate (future queries retrieve the poisoned entry and the agent acts on it). Tested across healthcare agents (patient ID swaps, medication substitutions), e-commerce agents (item redirection), and QA agents. Conventional defenses (adversarial training, embedding-level sanitization, prompt-level detection) had limited effectiveness — MINJA remained ~77% effective even with defenses deployed.
+
+**Why it matters for agents:** This is a "weaponized conversation" attack. The agent's own reasoning becomes the injection mechanism. Any system that lets the agent write to long-term memory based on conversation content is potentially vulnerable, unless there are gates between "what the agent reasons about" and "what gets persisted."
+
+#### 10.1.3 MemoryGraft — poisoned experience retrieval [arXiv:2512.16962]
+
+**Attack mechanism:** The attacker provides benign-looking documentation (a README, a markdown file, a code sample) that the agent reads during normal operation. The documentation contains embedded code that, when executed by the agent's document parser, constructs poisoned "successful experience" records in the agent's memory. Future tasks retrieve these poisoned experiences via semantic similarity, and the agent imitates the malicious patterns they contain (the "semantic imitation heuristic" — agents tend to replicate patterns from retrieved successful examples).
+
+**Threat model:** The attacker supplies documentation through a legitimate channel (file upload, repository contribution, shared drive). The attacker cannot directly edit the memory store, modify retrieval parameters, or access system instructions. The attack exploits the agent's tendency to execute code embedded in documentation and its trust in its own stored experiences.
+
+**Key results:** Despite poisoned entries being <5% of total memory, 47.9% of all retrieved records came from the poisoned set. The attack persists indefinitely across sessions and users without further attacker intervention. The poisoned entries are retrieved even for tasks semantically distinct from the original injection context, showing cross-task contamination.
+
+**Why it matters for agents:** This attack targets the *experience replay* pattern — agents that learn from their own successful task completions. The attacker doesn't inject instructions; they inject *examples of success* that happen to include malicious behavior. This is harder to detect because the poisoned content looks like legitimate task records, not like prompt injection.
+
+### 10.2 The only published defense: DRIFT's memory-stream isolation [arXiv:2506.12104]
+
+DRIFT (Dynamic Rule-based Isolation for Function Trajectories) is the only published system that explicitly addresses memory-stream injection. Its "Injection Isolator" component continuously monitors the agent's memory stream and removes instructions that conflict with the user's verified intent. Combined with a Secure Planner (pre-plans tool trajectories before seeing data) and a Dynamic Validator (monitors execution deviations with privilege-level gating), DRIFT achieves:
+
+- ASR reduced from 30.7% to 1.3% on AgentDojo (GPT-4o-mini)
+- ASR of 4.8% on ASB (better than Progent's 15.8%)
+- Utility *improvement* of +21.8% under no-attack conditions (compared to CaMeL's static enforcement)
+
+DRIFT demonstrates that memory-aware runtime defense is viable and that it doesn't need to sacrifice utility. However, DRIFT's memory isolation is reactive (detect-and-remove after storage) rather than preventive (gate writes before storage), and it doesn't address provenance tracking, versioning, or capability-scoped retrieval.
+
+### 10.3 shisad's memory security design
+
+shisad's `PLAN-longterm-memory.md` is a comprehensive memory security architecture designed to address these attack classes. The design is organized around six safety requirements and a threat model that explicitly names MINJA, AgentPoison, and MemoryGraft-style attacks. Here's how it maps to the threat landscape:
+
+#### 10.3.1 Instruction/data boundary (defense against all three attack classes)
+
+**The rule:** Memory is always treated as *data*, never as *instructions*. Retrieved memory is never placed in the Trusted tier of the context (where system instructions and user goals live). It goes into the Untrusted tier, with Spotlighting-style demarcation, regardless of source.
+
+**Why this helps:** All three attack classes ultimately work by getting the agent to treat retrieved content as if it were instructions. By structurally placing all retrieved memory in the untrusted prompt region, shisad prevents poisoned entries from having the same influence as system instructions — even if the content of the entry looks like an instruction. This doesn't prevent the agent from being *influenced* by retrieved content (it still reads it), but it means the agent's reasoning about retrieved content happens in a context where the system prompt explicitly says "this is evidence, not instructions."
+
+**Comparison to literature:** This is equivalent to DRIFT's separation of memory from control, but enforced structurally via the three-tier context model (`PLAN-context-scaffold.md`) rather than via runtime detection.
+
+#### 10.3.2 Write gating (primary defense against MINJA and MemoryGraft)
+
+**The rule:** Long-term memory writes are privileged operations with deterministic gates:
+- Content that looks like instructions ("always do X," "ignore policy," "never do Y") is rejected by a pattern-matching filter (`MemoryManager._looks_instruction_like`).
+- All writes require provenance metadata (where did this content come from?).
+- Writes derived from external sources (web pages, tool outputs, email) require user confirmation by default.
+- Subagents (which routinely handle untrusted content) cannot write to long-term memory directly — they can only *propose* writes via structured outputs, which the orchestrator reviews and submits through the gating pipeline.
+
+**Why this helps against MINJA:** MINJA works because the agent's own reasoning generates malicious content that gets auto-stored. shisad's write gating breaks this chain: even if the agent *reasons* about attacker-crafted content, the resulting memory write must pass through deterministic gates (instruction-like pattern detection, provenance verification) and potentially user confirmation. The bridging-step entries that MINJA relies on ("data for patient A is stored under patient B") would need to survive these gates to be persisted.
+
+**Why this helps against MemoryGraft:** MemoryGraft works by getting the agent to store poisoned "successful experience" records. shisad's subagent write restriction means that even if a subagent executes malicious code from a README, the resulting data is a *proposed write* that must be reviewed by the orchestrator and pass through the gating pipeline. The orchestrator session is clean (no untrusted content in its context), so the review happens without the attacker's influence.
+
+**Comparison to literature:** No published defense system implements write gating. DRIFT detects and removes malicious entries after they're stored; shisad gates them before storage. This is architecturally stronger because it prevents the poisoned entry from ever existing in the retrieval store.
+
+#### 10.3.3 Capability-aware retrieval (defense against retrieval-as-covert-channel)
+
+**The rule:** Retrieval is not just "find semantically similar content." It is a capability-aware tool that considers what the agent is currently authorized to do. When the agent has side-effect capabilities (file write, network access, email send), retrieval from low-trust collections (external web, tool outputs) requires either explicit user permission or confirmation gating. The retrieval pipeline also enforces token budgets and per-type caps (how many facts, tasks, episodes, and entities can be included in a single retrieval result).
+
+**Why this helps:** Even if a poisoned entry exists in memory, it can only influence the agent if it's *retrieved* into the current context. Capability-aware retrieval means that dangerous combinations — retrieving untrusted web content when the agent has email-send capability — require explicit authorization. This limits the blast radius of any poisoning attack: even if the attacker successfully persists a malicious entry, it won't be automatically retrieved into contexts where it could cause harm.
+
+**Comparison to literature:** This is novel. AgentPoison, MINJA, and MemoryGraft all assume that retrieval is a simple semantic-similarity lookup with no authorization checks. Capability-aware retrieval introduces a policy layer between the retrieval index and the agent's context that none of these attacks account for.
+
+#### 10.3.4 Quarantine and review (defense against subtle poisoning)
+
+**The rule:** Content that triggers risk heuristics during ingestion is quarantined — stored but not retrievable by default. Quarantined items are surfaced to the user with explicit warnings when they would otherwise be retrieved, and the user can acknowledge the warning and retrieve them explicitly. Operators can perform bulk quarantine management.
+
+**Why this helps:** This handles the "gray zone" between obviously malicious content (which write gates reject) and obviously benign content (which passes through normally). Content that looks suspicious but isn't definitively malicious gets stored but flagged, and the user makes the final call. This is important for MINJA-style attacks where the bridging steps may not be obviously instruction-like but are logically suspicious.
+
+#### 10.3.5 Provenance tracking and versioned corrections (defense against slow-burn poisoning)
+
+**The rule:** Every memory entry carries immutable provenance metadata (who/what/when/where), and all updates are append-only (new records supersede old ones, but history is preserved). Derived content (summaries, extracted facts) carries the provenance of all its source inputs. Corrections do not overwrite — they create new versioned entries that supersede the old ones.
+
+**Why this helps:** This addresses the "revision abuse" attack (§2.1.6 in the memory plan): an attacker who induces frequent "minor updates" to gradually flip a memory entry from benign to malicious. Because every version is preserved with provenance, an audit can reconstruct the edit history and identify when a legitimate entry was gradually corrupted. The immutable provenance also means that memory entries derived from untrusted sources remain permanently tagged as untrusted — summarization doesn't "launder" their origin.
+
+**Comparison to literature:** MemoryGraft specifically assumes "no provenance tracking or sanitization of stored records" (assumption A4). shisad's provenance tracking directly invalidates this assumption. MINJA recommends "memory provenance tracking" as a defense but doesn't implement it; shisad specifies it as a first-class requirement.
+
+#### 10.3.6 Tiered storage with different trust semantics
+
+**The rule:** Memory is not a flat store. It's organized into four tiers with different trust semantics:
+1. **Transcript/Recall** (append-only): raw records of what was said, not what is true. Per-session, taint-labeled.
+2. **Retrieval Corpus** (sanitized chunks + encrypted originals): ingested through the content firewall, stored as sanitized text plus encrypted originals.
+3. **Long-term Memory Entries** (typed, gated): durable facts/preferences/notes with provenance, TTL, and versioning.
+4. **Knowledge Graph** (entities + relations + evidence pointers): structured filing with evidence requirements for every edge.
+
+**Why this helps:** `ANALYSIS.md` §6 recommends: "Split memory into trust zones. Ephemeral task memory, long-term memory, and imported knowledge should not share a flat trust domain." shisad implements this recommendation with four distinct tiers, each with its own write policy, retrieval semantics, and trust level. A poisoned entry in the retrieval corpus (tier 2) cannot automatically become a long-term memory entry (tier 3) or a knowledge graph edge (tier 4) — each tier has its own gates.
+
+#### 10.3.7 Knowledge graph with mandatory evidence pointers
+
+**The rule:** Every edge in the knowledge graph must have an evidence pointer back to a source (transcript entry, document, tool output). Graph updates are proposals that go through write gates and may require confirmation. Entities have stable IDs (not auto-incremented), so attackers can't create confusion by manufacturing duplicate entities.
+
+**Why this helps:** This makes the knowledge graph auditable and tamper-evident. An attacker who manages to inject a poisoned graph edge (e.g., "person X works at company Y") must also provide an evidence pointer — and that evidence is provenance-tracked and stored in the retrieval corpus with its original taint labels. An auditor can verify any graph claim by tracing it back to its source.
+
+### 10.4 Gap analysis: what shisad's memory design doesn't yet cover
+
+Despite being the most comprehensive memory security design in either the academic or the shisad corpus, several gaps remain:
+
+#### 10.4.1 Embedding-space attacks (AgentPoison's trigger optimization)
+
+AgentPoison's core technique is crafting triggers that occupy a specific region of the embedding space. shisad's write gating and instruction-like pattern detection operate on the *text content* of memory entries, not on their *embedding representation*. An entry that is semantically benign as text but optimized to be retrieved by specific trigger queries could pass write gates and still be preferentially retrieved.
+
+**Recommendation:** Add embedding-space anomaly detection to the ingestion pipeline. Specifically: monitor whether new entries cluster unusually tightly in embedding space (a signature of trigger-optimized content), and flag entries whose retrieval frequency is disproportionate to their semantic relevance (a signature of a successful trigger). This could be a background consolidation job (§6 in the memory plan) rather than a synchronous ingestion check.
+
+#### 10.4.2 Experience/demonstration poisoning (MemoryGraft's imitation vector)
+
+shisad's write gating checks for instruction-like patterns, but MemoryGraft's poisoned entries don't look like instructions — they look like records of successful task completions. The agent imitates them not because they say "do X" but because they demonstrate "here's how X was done successfully." If shisad stores task completion records (for training or experience replay), these records would need separate verification: does this "successful completion" record actually correspond to a task that was successfully completed through the normal PEP-enforced pipeline?
+
+**Recommendation:** If/when shisad implements experience replay or task-completion memory, require that experience records are derived only from PEP-verified execution traces (traces where every tool call was approved by the enforcement pipeline). Do not store "successful experiences" that were self-reported by subagents or inferred from documentation. Cross-reference stored experiences against the audit log to verify they actually happened.
+
+#### 10.4.3 Consolidation-phase attacks
+
+shisad's background consolidation jobs (dedup, merge, contradiction detection, summarization) are described in §6 of the memory plan, but the security implications of consolidation are not fully specified. Consolidation is a *write* operation on memory, and the consolidation jobs read existing memory entries (which may include previously-quarantined-but-accepted entries, or entries that were benign at ingestion but form a malicious pattern in combination). If consolidation jobs are LLM-powered, they're subject to the same injection risks as any other LLM processing of untrusted content.
+
+**Recommendation:** Apply the same COMMAND/TASK separation to consolidation jobs: the consolidation LLM runs in a TASK-mode context (scoped capabilities, structured outputs only), and its proposed memory modifications go through the same write gates as any other memory write. Consolidation-derived entries should carry compound provenance (provenance of all source entries that contributed to the consolidated result).
+
+#### 10.4.4 Temporal/TTL attacks
+
+shisad supports TTL (time-to-live) for unverified external-derived facts, which is good — stale content eventually expires. But the TTL mechanism could itself be exploited: an attacker who can trigger periodic re-retrieval of a poisoned entry (e.g., by repeatedly asking about a topic) could keep the entry "fresh" and prevent expiry. The memory plan mentions decay/TTL enforcement as a consolidation job but doesn't specify whether retrieval resets TTL.
+
+**Recommendation:** TTL should be based on *creation time* or *last verification time*, not *last retrieval time*. Retrieval should not extend TTL. Only explicit user verification or corroboration by a second independent source should extend an entry's lifespan.
+
+#### 10.4.5 No published evaluation numbers yet
+
+`ANALYSIS.md` §7 notes that "no defense specifically addresses temporal persistence." shisad's design addresses persistence architecturally, but hasn't been evaluated against the published attack benchmarks (AgentPoison, MINJA, MemoryGraft, ASB's memory poisoning scenarios). The memory plan (§8) specifies MINJA-style injection tests and a "poisoning defense posture" checklist (citing arXiv:2601.05504), but these are planned, not completed.
+
+**Recommendation:** Prioritize running MINJA (query-only injection with bridging steps) as the first adversarial evaluation, since it has the most realistic threat model (attacker only needs query access). AgentPoison requires embedding-space awareness that shisad doesn't yet have; MemoryGraft requires experience-replay features that may not be implemented yet. MINJA directly tests the write-gating and instruction-detection defenses that are already designed.
+
+### 10.5 Summary: shisad vs. the memory threat landscape
+
+| Defense layer | AgentPoison (trigger-based) | MINJA (query-only) | MemoryGraft (experience) | DRIFT (published defense) |
+|---|---|---|---|---|
+| **Instruction/data boundary** | Partial (doesn't stop demonstration-style entries) | Strong (bridging steps often look instruction-like) | Partial (experiences aren't instructions) | Similar (memory stream isolation) |
+| **Write gating** | Strong (provenance + confirmation for external sources) | Strong (instruction-like rejection + subagent write restriction) | Partial (experiences may pass pattern filters) | Not present (reactive, not preventive) |
+| **Capability-aware retrieval** | Strong (limits blast radius even if entry exists) | Strong (limits blast radius) | Strong (limits blast radius) | Not present |
+| **Quarantine** | Moderate (trigger-optimized content may not trigger risk heuristics) | Moderate to Strong (suspicious bridging steps flagged) | Weak (benign-looking experiences unlikely to trigger quarantine) | Not present |
+| **Provenance tracking** | Strong (entries tagged with source; audit trail) | Strong (entries tagged with source; audit trail) | Strong (directly invalidates MemoryGraft's core assumption) | Not present |
+| **Tiered storage** | Strong (entries can't jump trust tiers) | Strong (entries can't jump trust tiers) | Strong (experiences confined to their tier) | Partial (memory vs. control separation) |
+| **Embedding anomaly detection** | **Gap** (no defense against trigger optimization) | N/A (doesn't use embedding tricks) | N/A (doesn't use embedding tricks) | Not present |
+| **Experience verification** | N/A | N/A | **Gap** (no PEP-trace cross-reference for stored experiences) | Not present |
+
+**Bottom line:** shisad's memory design is, as far as this review can determine, the most comprehensive memory security architecture in the combined academic and industry literature. It is the only system that combines preventive write gating, capability-aware retrieval, provenance-tracked tiered storage, and quarantine — all of which are merely *recommended* (not implemented) in the attack papers. The main gaps are embedding-space anomaly detection (for AgentPoison-class attacks), experience verification (for MemoryGraft-class attacks), and the absence of evaluation numbers against published benchmarks.
+
 ---
 
 ## Appendix: Key shisad docs referenced
@@ -725,6 +907,8 @@ Critically, the summary barrier is *not the sole defense*: regardless of whether
   - `shisad/docs/runbooks/*`
   - `shisad/docs/PLAN-tracing.md`
   - `shisad/docs/IMPLEMENTATION-tracing.md`
+- Long-term memory:
+  - `shisad/docs/PLAN-longterm-memory.md`
 - Self-modification and integrity (v0.4):
   - `shisad/docs/v0.4/ANALYSIS-admin-self-modification.md`
   - `shisad/docs/v0.4/ANALYSIS-signatures-and-integrity.md`
