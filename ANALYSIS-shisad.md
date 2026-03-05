@@ -272,6 +272,7 @@ These are “fast follow” items that match shisad’s existing architecture an
 2. **ArtifactLedger finalization**: settle schemas for artifacts, summaries, provenance, and endorsement; define what is encrypt-at-rest vs prompt-visible vs audit-visible.
 3. **Credential broker upgrade path**: define when tool-level credential resolution becomes insufficient (executor compromise, computer-use), and how proxy-level injection would integrate with PEP egress decisions.
 4. **Policy semantics for background autonomy**: how scheduled tasks get “pre-approved scope” that is expressive enough to be useful but tight enough to prevent drift/exfil (ties directly to the scheduler→PEP gap).
+5. **Type-restricted boundaries (type-directed separation)**: introduce semantic “boundary types” so untrusted strings cannot flow directly into tool-call *control parameters* (destinations, commands, paths) without endorsement; see §8.3.6.
 
 ## 7) Actionable checklist (gap analysis → next steps)
 
@@ -304,6 +305,7 @@ These are “fast follow” items that match shisad’s existing architecture an
 - [ ] Finalize/implement the **ArtifactLedger** (or equivalent) as the primary “evidence store”: encrypted raw artifacts + firewall’d summaries + immutable provenance + mutable endorsement (`shisad/docs/ADR-command-task-architecture.md`).
 - [ ] Implement the **TASK→COMMAND summary barrier** as a hard rule (firewall on summaries; provenance annotation; URLs in summaries treated as untrusted provenance) (`shisad/docs/ADR-command-task-architecture.md`, `shisad/docs/PLAN-context-scaffold.md`).
 - [ ] Specify and enforce **scoped approval tokens** (TTL + narrow scope + revocation) to reduce confirmation fatigue without blanket privilege escalation (`shisad/docs/ADR-command-task-architecture.md`).
+- [ ] Add **type-restricted boundary schemas** for TASK returns and tool-call arguments (validated atoms + opaque handles; free-text as artifacts) to reduce “untrusted string → sink parameter” risk (§8.3.6).
 
 ### 7.5 P1 — supply-chain hardening quick wins
 
@@ -487,6 +489,127 @@ These are areas where published systems offer capabilities that shisad has not y
 **Where shisad stands:** shisad's PEP policies are currently defined in Python code. This is powerful (arbitrary logic is expressible) but creates a maintenance burden: adding a new tool requires understanding the PEP code; auditing policies requires reading Python; sharing policies between deployments requires copying code. As the tool surface grows, this becomes a scaling problem.
 
 **How to close the gap:** Adopt a Progent-style declarative policy schema (YAML or JSON) that maps to shisad's PEP pipeline stages. The PEP would load policies from configuration files rather than hard-coding them. This is an additive change — the PEP's enforcement logic stays the same; only the policy *input format* changes from Python code to declarative configuration. `ANALYSIS.md` §7 identifies "policy authoring at scale" as a structural challenge for the field; a declarative DSL is the standard solution.
+
+#### 8.3.6 Type-directed separation / type-restricted boundaries (and whether it’s practical)
+
+**The problem:** Prompt injection succeeds most often when untrusted text becomes a *control parameter* — a URL to fetch, a shell command to execute, a path to write, a recipient to message. The attacker’s payload doesn’t need to “take over the whole agent” if it can just smuggle one critical string into a sink.
+
+Today, most agent systems (including shisad as currently specified) rely on coarse trust tiers (TRUSTED/SEMI_TRUSTED/UNTRUSTED) plus per-call policy checks. This works, but it’s easy to end up with subtle “string laundering” paths:
+- a TASK agent sees a web page, writes “you should fetch `https://evil.com/update`” in a summary
+- the COMMAND agent extracts the URL from the summary
+- the agent fetches it because “web fetch is allowed”
+
+Even if you have provenance labels, once the dangerous value is represented as a plain string, it becomes difficult to reason about *which* part of the string is safe, which part is attacker-controlled, and what it is allowed to influence.
+
+**What the research offers:** “Type-directed privilege separation” extends the CaMeL-style split by allowing data flow from untrusted processing to privileged planning only for *non-instruction-bearing types* — integers, booleans, enums, and other values that cannot encode free-form instructions (`ANALYSIS.md` §3.1). The core move is:
+
+- **Untrusted free text stays quarantined.**
+- **Only typed, validated “atoms” and opaque references can cross boundaries.**
+
+You can think of this as an IFC system with a much stricter boundary: instead of “strings are allowed but tainted,” it prefers “strings don’t cross at all unless they are explicitly re-typed into a safe form.”
+
+**Where shisad stands:** shisad already has the *right boundary locations* to apply this:
+- the TASK→COMMAND handoff boundary (`shisad/docs/ADR-command-task-architecture.md`)
+- the tool-call boundary via the PEP (`shisad/docs/PLAN-security.md`)
+- the control-plane boundary (metadata-only enforcement)
+
+But shisad does not yet have a concrete “type-restricted boundary” spec that answers: **what exact field types are allowed to cross, and under what provenance constraints?**
+
+**How to close the gap (shisad-native design): define “boundary types” and enforce them at sinks**
+
+The practical version for shisad is not “never use strings.” It is:
+1. **Constrain which *kinds* of strings are allowed to become control parameters.**
+2. **Treat everything else as evidence/content that must be referenced by handle.**
+
+Concretely, introduce a small set of semantic types:
+
+1) **Opaque handles (preferred for anything long or attacker-controlled)**
+- `ArtifactRef` (points to encrypted evidence/drafts)
+- `MessageId`, `CalendarEventId`, `FileHandle`, `MemoryId`
+- `CredentialRef` (already part of shisad’s design)
+- `ApprovalToken` / `EndorsementRef` (user-scoped authorization)
+
+2) **Validated atoms (“structured strings”)**
+- `Host`, `Url`, `EmailAddress` (canonicalized, length-bounded, parsed)
+- `WorkspacePath` (must normalize under allowed roots; no `..`, no symlink escape)
+- `CommandTokens` (array of tokens, not a shell string; no metachar expansion)
+- `ToolName` / `ActionKind` (enum, not free text)
+
+3) **Text types (content, not authority)**
+- `UserText` (direct authenticated user message; can authorize)
+- `DraftText` (LLM-generated; can be shown to user; not inherently authorizing)
+- `EvidenceText` (untrusted/raw; never authorizing)
+
+Then enforce a simple rule in the PEP:
+- **Sink-critical arguments must be either (a) validated atoms with trusted provenance, or (b) atoms/handles with explicit endorsement.**
+- Free text (`DraftText`/`EvidenceText`) can be *payload* (what is sent/written) but must not silently become *control* (where it is sent/written/executed).
+
+##### Mapping to shisad boundaries (where the type restrictions actually live)
+
+This design plugs into two existing shisad boundaries:
+
+1) **TASK → COMMAND**
+- TASK returns structured objects that are *mostly handles + atoms*:
+  - handles to artifacts (“here’s the raw page/email/draft”)
+  - validated atoms (“here are the candidate hosts/emails/paths extracted”)
+  - optional SEMI_TRUSTED summaries for UX only (never as authorization input)
+
+2) **COMMAND → PEP → Tool executor**
+- Tool schemas already exist; the change is to tighten “dangerous” fields:
+  - `web.fetch(url: Url)` where `Url` is canonicalized + provenance-tagged
+  - `shell.exec(command: CommandTokens)` (no raw shell strings)
+  - `fs.write(path: WorkspacePath, content: ArtifactRef)` (prefer handles for large content)
+  - `email.send(to: list[EmailAddress], body: ArtifactRef)` (body-by-handle; recipients are atoms)
+
+##### Real-world examples (does this still let people do “normal agent things”?)
+
+**Example A — “Summarize Bob’s email, then reply ‘yes’.”**
+
+- TASK reads the email and stores raw content as `ArtifactRef("art_email_...")`.
+- TASK returns:
+  - `from: EmailAddress("bob@example.com")` (validated atom; provenance=email header)
+  - `summary: DraftText("…")` (SEMI_TRUSTED; UX only)
+  - `suggested_action: { kind: email.reply, in_reply_to: MessageId("msg_123"), to: EmailAddress("bob@example.com"), draft: ArtifactRef("art_draft_...") }`
+- COMMAND can propose `email.send(...)` **because the user goal authorized replying to that email thread**; the PEP uses provenance (“user asked to reply to msg_123”) to treat the recipient as user-goal-derived, even though it originated in email metadata.
+
+Type restriction helps here by ensuring the send action is parameterized by *typed atoms and handles*, not arbitrary strings extracted from a summary.
+
+**Example B — “Search the web, open the best link, and summarize it.”**
+
+- TASK does `web.search` and returns a list of candidates as validated `Url` atoms plus `ArtifactRef` evidence.
+- If the destination is not in an auto-approve allowlist and is not explicitly in the user goal, the PEP routes `web.fetch(url=…)` to confirmation: “This URL came from untrusted search results; fetch anyway?”
+
+This preserves utility: users can still browse the open web, but *new* destinations discovered in untrusted content are treated as requiring endorsement.
+
+**Example C — “Run the installation command shown in this README.”**
+
+- The README text is `EvidenceText` (UNTRUSTED).
+- The system can extract the code block into an `ArtifactRef("art_cmd_...")` and parse it into `CommandTokens([...])`.
+- If the user’s goal explicitly asks to run it, the system can confirm with a structured preview (“This will run: …; network access to …; writes to …”) and produce an `ApprovalToken` scoped to that exact command (or a tight template).
+
+Type restriction doesn’t prevent running commands; it prevents *hidden shell strings* from being executed without a typed representation + endorsement.
+
+##### What this does *not* solve (and why it’s still worth it)
+
+Type restriction is not a magic proof. It doesn’t eliminate the need for:
+- PEP “who asked?” provenance checks (authorization still matters)
+- egress allowlists / confirmation UX (open-world destinations still exist)
+- taint tracking for payload sensitivity (exfil is about *what* is sent, not just *where*)
+
+What it buys you is **a tighter, more analyzable interface**: the dangerous part of tool calls becomes small, typed, canonicalized, and provenance-tagged — which makes both policy authoring and verification dramatically easier.
+
+##### Is this “the agent writes code”?
+
+It’s closely related, but not identical.
+
+- **“Agent writes code”** approaches (including CaMeL’s restricted Python plans) use a program/DSL as an intermediate representation so execution becomes deterministic, auditable, and analyzable.
+- **Type-restricted boundaries** are about information flow: *which values are allowed to cross from untrusted processing into privileged control parameters*.
+
+In practice, they reinforce each other:
+- A typed DSL makes type restriction natural (tool calls are function calls with typed args).
+- Type restriction prevents “code as a structure” from still being driven by untrusted strings.
+
+The shisad-native incremental path is: tighten tool-call schemas and TASK→COMMAND returns into typed atoms + handles first; later, if needed, introduce a richer plan DSL/interpreter to enable deeper static checks (dependency graphs, noninterference checks, etc.).
 
 ---
 
