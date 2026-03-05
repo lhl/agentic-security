@@ -2,6 +2,8 @@
 
 Research collection on LLM agent security: prompt injection defenses, privilege separation, control planes, runtime verification, and model hardening.
 
+**[Read the full analysis (ANALYSIS.md)](ANALYSIS.md)** -- comprehensive survey of 78 papers covering the defense taxonomy, production readiness, and a recommended defense-in-depth stack.
+
 ## Citation
 
 If you reference this repo's summaries/analyses in academic or professional work, please cite:
