@@ -7,7 +7,6 @@ Research collection on LLM agent security: prompt injection defenses, privilege 
 - [ANALYSIS.md](ANALYSIS.md) — comprehensive survey of 78 papers covering the defense taxonomy, production readiness, and a recommended defense-in-depth stack
 - [references/REFERENCE_INDEX.md](references/REFERENCE_INDEX.md) — topic-organized index of all local references (papers/vendor/web), with title + short summary
 - [analysis/](analysis/) — cross-cutting syntheses and research notes
-- [shisad/](shisad/) — shisad security architecture docs bundle (export)
 
 ## Citation
 
@@ -34,8 +33,7 @@ agentic-security/
 │   ├── bib/           # Generated BibTeX (*.bib)
 │   ├── web/           # Saved HTML articles/pages
 │   └── vendor/        # Vendor reports/system cards
-├── scripts/           # Automation (sync downloads, extract text, generate BibTeX)
-└── shisad/            # Project-specific implementation docs
+└── scripts/           # Automation (sync downloads, extract text, generate BibTeX)
 ```
 
 ## Sync
