@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en-gb">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="canonical" href="https://simonwillison.net/2025/Apr/11/camel/">
+<title>CaMeL offers a promising new direction for mitigating prompt injection attacks</title>
+<script defer data-domain="simonwillison.net" src="https://plausible.io/js/plausible.js"></script>
+<link rel="alternate" type="application/atom+xml" title="Atom" href="/atom/everything/">
+<link rel="stylesheet" type="text/css" href="/static/css/all.css">
+<link rel="webmention" href="https://webmention.io/simonwillison.net/webmention">
+<link rel="pingback" href="https://webmention.io/simonwillison.net/xmlrpc">
+<meta name="author" content="Simon Willison">
+<meta property="og:site_name" content="Simon Willison’s Weblog">
+
+
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://static.simonwillison.net/static/2025/camel-card.jpg">
+<meta name="twitter:creator" content="@simonw">
+<meta property="og:url" content="https://simonwillison.net/2025/Apr/11/camel/">
+<meta property="og:title" content="CaMeL offers a promising new direction for mitigating prompt injection attacks">
+<meta property="og:image" content="https://static.simonwillison.net/static/2025/camel-card.jpg">
+<meta property="og:type" content="article">
+<meta property="og:description" content="In the two and a half years that we’ve been talking about prompt injection attacks I’ve seen alarmingly little progress towards a robust solution. The new paper Defeating Prompt Injections …">
+<meta property="og:updated_time" content="1744404600">
+
+
+
+
+
+<script>
+(function() { // Apply theme immediately to prevent flash
+  const theme = localStorage.getItem('theme');
+  if (theme === 'light' || theme === 'dark') {
+    document.documentElement.setAttribute('data-theme', theme);
+  }
+})();
+</script>
+</head>
+<body class="smallhead">
+
+<div id="smallhead">
+  <div id="smallhead-inner">
+    <h1><a href="/">Simon Willison’s Weblog</a></h1>
+    <a id="smallhead-about" href="/about/#subscribe">Subscribe</a>
+  </div>
+</div><!-- #smallhead -->
+
+
+<div id="sponsored-banner" class="sponsor-scheme-sky">
+  <div id="sponsored-banner-inner">
+    <strong class="sponsored-label">Sponsored by:</strong> Augment Code &mdash; Agent Orchestration. Living Specs. Your favorite agents. <a href="https://fandf.co/4qRMH45" rel="sponsored noopener" target="_blank">Build with Intent</a>.
+  </div>
+</div>
+
+
+<div id="wrapper">
+<div id="primary">
+
+<div class="entry entryPage">
+
+
+<div data-permalink-context="/2025/Apr/11/camel/">
+<h2>CaMeL offers a promising new direction for mitigating prompt injection attacks</h2>
+<p class="mobile-date">11th April 2025</p>
+
+
+
+<p>In the <a href="https://simonwillison.net/series/prompt-injection/">two and a half years</a> that we’ve been talking about prompt injection attacks I’ve seen alarmingly little progress towards a robust solution. The new paper <strong><a href="https://arxiv.org/abs/2503.18813">Defeating Prompt Injections by Design</a></strong> from Google DeepMind <em>finally</em> bucks that trend. This one is worth paying attention to.</p>
+<p>If you’re new to prompt injection attacks the very short version is this: what happens if someone emails my LLM-driven assistant (or “agent” if you like) and tells it to forward all of my emails to a third party? Here’s <a href="https://simonwillison.net/2023/Apr/25/dual-llm-pattern/">an extended explanation</a> of why it’s so hard to prevent this from being a show-stopping security issue which threatens the dream digital assistants that everyone is trying to build.</p>
+<p>The original sin of LLMs that makes them vulnerable to this is when trusted prompts from the user and untrusted text from emails/web pages/etc are concatenated together into the same token stream. I called it “prompt injection” because it’s the same anti-pattern as <a href="https://en.wikipedia.org/wiki/SQL_injection">SQL injection</a>.</p>
+<p>Sadly, there is no known reliable way to have an LLM follow instructions in one category of text while safely applying those instructions to another category of text.</p>
+<p>That’s where <strong>CaMeL</strong> comes in.</p>
+<p>The <a href="https://arxiv.org/abs/2503.18813">new DeepMind paper</a> introduces a system called CaMeL (short for CApabilities for MachinE Learning). The goal of CaMeL is to safely take a prompt like “Send Bob the document he requested in our last meeting” and execute it, taking into account the risk that there might be malicious instructions somewhere in the context that attempt to over-ride the user’s intent.</p>
+<p>It works by taking a command from a user, converting that into a sequence of steps in a Python-like programming language, then checking the inputs and outputs of each step to make absolutely sure the data involved is only being passed on to the right places.</p>
+
+
+<ul>
+  <li><a href="https://simonwillison.net/2025/Apr/11/camel/#addressing-a-flaw-in-my-dual-llm-pattern">Addressing a flaw in my Dual-LLM pattern</a></li>
+  <li><a href="https://simonwillison.net/2025/Apr/11/camel/#fixing-that-with-capabilities-and-a-custom-interpreter">Fixing that with capabilities and a custom interpreter</a></li>
+  <li><a href="https://simonwillison.net/2025/Apr/11/camel/#a-neat-privacy-bonus">A neat privacy bonus</a></li>
+  <li><a href="https://simonwillison.net/2025/Apr/11/camel/#the-best-part-is-it-doesn-t-use-more-ai">The best part is it doesn’t use more AI</a></li>
+  <li><a href="https://simonwillison.net/2025/Apr/11/camel/#so-are-prompt-injections-solved-now-">So, are prompt injections solved now?</a></li>
+  <li><a href="https://simonwillison.net/2025/Apr/11/camel/#camels-have-two-humps">Camels have two humps</a></li>
+</ul>
+
+
+<h4 id="addressing-a-flaw-in-my-dual-llm-pattern">Addressing a flaw in my Dual-LLM pattern</h4>
+<p>I’ll admit that part of the reason I’m so positive about this paper is that it builds on some of my own work!</p>
+<p>Back in April 2023 I proposed <a href="https://simonwillison.net/2023/Apr/25/dual-llm-pattern/">The Dual LLM pattern for building AI assistants that can resist prompt injection</a>. I theorized a system with two separate LLMs: a privileged LLM with access to tools that the user prompts directly, and a quarantined LLM it can call that has no tool access but is designed to be exposed to potentially untrustworthy tokens.</p>
+<p>Crucially, at no point is content handled by the quarantined LLM (Q-LLM) exposed to the privileged LLM (P-LLM). Instead, the Q-LLM populates references—<code>$email-summary-1</code> for example—and the P-LLM can then say "Display <code>$email-summary-1</code> to the user" without being exposed to those potentially malicious tokens.</p>
+<p>The DeepMind paper references this work early on, and then describes a new-to-me flaw in my design:</p>
+<blockquote>
+<p>A significant step forward in defense strategies is the Dual LLM pattern theoretically described by Willison (2023). This pattern employs two LLMs: a Privileged LLM and a Quarantined LLM. The Privileged LLM is tasked with planning the sequence of actions needed to fulfill the user’s request, such as searching the cloud storage for the meeting notes and fetching the requested document from the cloud storage, and sending it to the client. Importantly, this privileged LLM only sees the initial user query and never the content from potentially compromised data sources (like the file content).</p>
+<p>The actual processing of potentially malicious data, like extracting the name of the document to send and the client’s email address, would be delegated to the Quarantined LLM. This Quarantined LLM, crucially, is stripped of any tool-calling capabilities, limiting the harm an injected prompt can cause and guaranteeing that the adversary cannot call arbitrary tools with arbitrary arguments.</p>
+<p><strong>Is Dual LLM of Willison enough?</strong> While the Dual LLM pattern significantly enhances security by isolating planning from being hijacked by malicious content, it does not completely eliminate all prompt injection risks. Let us consider the example depicted in Figure 1. Here, even with the Dual LLM in place we show that vulnerabilities still exist.</p>
+</blockquote>
+<p>Here’s figure 1:</p>
+<p><img src="https://static.simonwillison.net/static/2025/design-figure-1.jpg" alt="Flowchart diagram showing document retrieval process: At top, a stick figure labeled &quot;User&quot; with a yellow speech bubble stating &quot;Can you send Bob the document he requested in our last meeting? Bob's email and the document he asked for are in the meeting notes file.&quot; Two database cylinders labeled &quot;Notes&quot; and &quot;Drive&quot; are connected to a red dashed box containing workflow steps in red circles: &quot;Find recent meeting notes&quot; → &quot;Extract doc name&quot; and &quot;Extract email address&quot; → &quot;Fetch document by name&quot; → &quot;Send document to email&quot;. Green arrows show data flow between steps, with labels &quot;Data Flow&quot; and &quot;Control Flow&quot; on the sides of the box." style="max-width: 100%;"></p>
+<p>The user’s prompt here is:</p>
+<blockquote>
+<p>Can you send Bob the document he requested in our last meeting? Bob’s email and the document he asked for are in the meeting notes file.</p>
+</blockquote>
+<p>And there lies the flaw. With the Dual LLM pattern the P-LLM delegates the task of finding Bob’s email address to the Q-LLM—but the Q-LLM is still exposed to potentially malicious instructions. An attacker could use those instructions to over-ride that retrieved email address and cause the document to be exfiltrated to an attacker-chosen address.</p>
+<h4 id="fixing-that-with-capabilities-and-a-custom-interpreter">Fixing that with capabilities and a custom interpreter</h4>
+<p>CaMeL addresses this problem directly using some very clever security engineering.</p>
+<p>In CaMeL, the user’s prompt is converted by the P-LLM into a sequence of steps that are described using code. They chose to use a locked-down subset of Python for this, because every available LLM is good at writing Python already:</p>
+<blockquote><p>We build a custom Python interpreter that operates over a restricted version of Python. We choose Python as it is a very popular programming language, and large language models are very competent at writing it. We use Python’s built-in ast library to parse the abstract syntax tree, and interpret each tree node in a recursive fashion.</p></blockquote>
+<p>Consider the prompt “Find Bob’s email in my last email and send him a
+reminder about tomorrow’s meeting”. CaMeL would convert that into code looking something like this:</p>
+<pre><span class="pl-s1">email</span> <span class="pl-c1">=</span> <span class="pl-en">get_last_email</span>()
+<span class="pl-s1">address</span> <span class="pl-c1">=</span> <span class="pl-en">query_quarantined_llm</span>(
+    <span class="pl-s">"Find Bob's email address in [email]"</span>,
+    <span class="pl-s1">output_schema</span><span class="pl-c1">=</span><span class="pl-v">EmailStr</span>
+)
+<span class="pl-en">send_email</span>(
+    <span class="pl-s1">subject</span><span class="pl-c1">=</span><span class="pl-s">"Meeting tomorrow"</span>,
+    <span class="pl-s1">body</span><span class="pl-c1">=</span><span class="pl-s">"Remember our meeting tomorrow"</span>,
+    <span class="pl-s1">recipient</span><span class="pl-c1">=</span><span class="pl-s1">address</span>,
+)</pre>
+<p>As you can see, this code combines several calls to tools that are exposed as Python functions—one to retrieve the last email, one that uses a quarantined LLM to extract Bob’s email address from it and one to send a new email.</p>
+<p>Here’s where things get clever: by using a custom interpreter, CaMeL can apply extra rules to the code that is executed. It can keep track of which variables were derived from which other variables and apply security policies that take that trail into account.</p>
+<p>In this example, <code>email</code> is a potential source of untrusted tokens, which means <code>address</code> is as well (since it is derived from <code>email</code>).</p>
+<p>The security rules to apply are as follows:</p>
+<ul>
+<li>
+<strong>get_last_email</strong>: always allowed</li>
+<li>
+<strong>send_email</strong>: only if <code>recipient</code> is trusted</li>
+</ul>
+<p>If the <code>address</code> (passed to <code>send_email</code> as the <code>recipient</code> parameter) is a known, trusted adress—based on policies set by the user—the system can send that email without prompting first. If it’s an unknown email the user can be asked to approve the message.</p>
+<p><strong>Capabilities</strong> are effectively tags that can be attached to each of the variables, to track things like who is allowed to read a piece of data and the source that the data came from. <strong>Policies</strong> can then be configured to allow or deny actions based on those capabilities.</p>
+
+<h4 id="a-neat-privacy-bonus">A neat privacy bonus</h4>
+
+<p>There are other potential benefits to this design as well. The P-LLM needs to be quite sophisticated, as it’s responsible for building a plan and then generating code in the custom Python dialect. The Q-LLM can be a whole lot less powerful:</p>
+<blockquote>
+<p>As parsing data is likely to be easier than creating a plan and writing code for the user’s query, one could use a smaller language model for the Q-LLM. On top of being faster and cheaper, this LLM can potentially also be run locally on the user’s machine. This would improve the user’s privacy with respect to the model provider: since the LLM used as the P-LLM is only provided with the user query, the P-LLM provider never sees the tool outputs (which might contain sensitive information that should not be shared with the P-LLM provider).</p>
+</blockquote>
+<p>This means a CaMeL system could use a cloud-hosted LLM as the driver while keeping the user’s own private data safely restricted to their own personal device.</p>
+
+
+<h4 id="the-best-part-is-it-doesn-t-use-more-ai">The best part is it doesn’t use more AI</h4>
+<p>Most of the proposed solutions I have seen to prompt injection to date involve layering on even more AI. I wrote about why I think this is a bad idea in <a href="https://simonwillison.net/2022/Sep/17/prompt-injection-more-ai/">You can’t solve AI security problems with more AI</a>. AI techniques use probabilities: you can train a model on a collection of previous prompt injection examples and get to a 99% score in detecting new ones... and that’s useless, because in application security <a href="https://simonwillison.net/2023/May/2/prompt-injection-explained/#prompt-injection.015">99% is a failing grade</a>:</p>
+<p><img src="https://static.simonwillison.net/static/2023/langchain-webinar-may/prompt-injection.015.jpeg" alt="Slide: in application security 99% is a failing grade" style="max-width: 100%;"></p>
+<p>The job of an adversarial attacker is to find the 1% of attacks that get through. If we protected against SQL injection or XSS using methods that fail 1% of the time our systems would be hacked to pieces in moments.</p>
+<p>The CaMeL proposal recognizes this:</p>
+<blockquote>
+<p>CaMeL is a practical defense to prompt injection achieving security not through model training techniques but through principled system design around language models. Our approach effectively solves the AgentDojo benchmark while providing strong guarantees against unintended actions and
+data exfiltration. […]</p>
+</blockquote>
+<p>This is the first mitigation for prompt injection I’ve seen that claims to provide <strong>strong guarantees</strong>! Coming from security researchers that’s a very high bar.</p>
+<h4 id="so-are-prompt-injections-solved-now-">So, are prompt injections solved now?</h4>
+<p>Quoting section 8.3 from the paper:</p>
+<blockquote>
+<p><strong>8.3. So, are prompt injections solved now?</strong></p>
+<p>No, prompt injection attacks are not fully solved. While CaMeL significantly improves the security of LLM agents against prompt injection attacks and allows for fine-grained policy enforcement, it is not without limitations.</p>
+<p>Importantly, CaMeL suffers from users needing to codify and specify
+security policies and maintain them. CaMeL also comes with a user burden. At the same time, it is well known that balancing security with user experience, especially with de-classification and user fatigue, is challenging.</p>
+</blockquote>
+<p>By “user fatigue” they mean that thing where if you constantly ask a user to approve actions (“Really send this email?”, “Is it OK to access this API?”, “Grant access to your bank account?”) they risk falling into a fugue state where they say “yes” to everything.</p>
+<p>This can affect the most cautious among us. Security researcher Troy Hunt <a href="https://simonwillison.net/2025/Apr/4/a-sneaky-phish/">fell for a phishing attack</a> just last month due to jetlag-induced tiredness.</p>
+<p>Anything that requires end users to think about security policies also makes me deeply nervous. I have enough trouble thinking through those myself (I still haven’t fully figured out AWS IAM) and I’ve been involved in application security for two decades!</p>
+<p>CaMeL really does represent a promising path forward though: the first credible prompt injection mitigation I’ve seen that <em>doesn’t</em> just throw more AI at the problem and instead leans on tried-and-proven concepts from security engineering, like capabilities and data flow analysis.</p>
+<p>My hope is that there’s a version of this which combines robustly selected defaults with a clear user interface design that can finally make the dreams of general purpose digital assistants a secure reality.</p>
+<h4 id="camels-have-two-humps">Camels have two humps</h4>
+<p>Why did they pick CaMeL as the abbreviated name for their system? I like to think it’s because camels have two humps, and CaMeL is an improved evolution of my dual LLM proposal.</p>
+
+
+</div>
+<div class="entryFooter">Posted <a href="/2025/Apr/11/">11th April 2025</a> at 8:50 pm &middot; Follow me on <a href="https://fedi.simonwillison.net/@simon">Mastodon</a>, <a href="https://bsky.app/profile/simonwillison.net">Bluesky</a>, <a href="https://twitter.com/simonw">Twitter</a> or <a href="https://simonwillison.net/about/#subscribe">subscribe to my newsletter</a></div>
+<p class="edit-page-link" data-admin-url="/admin/blog/entry/8856/" style="display: none;"></p>
+
+</div>
+
+<div class="recent-articles">
+<h2>More recent articles</h2>
+<ul class="bullets">
+  
+    <li><a href="/2026/Mar/4/qwen/">Something is afoot in the land of Qwen</a> - 4th March 2026</li>
+  
+    <li><a href="/2026/Feb/25/present/">I vibe coded my dream macOS presentation app</a> - 25th February 2026</li>
+  
+    <li><a href="/2026/Feb/23/agentic-engineering-patterns/">Writing about Agentic Engineering Patterns</a> - 23rd February 2026</li>
+  
+</ul>
+</div>
+
+
+</div> <!-- #primary -->
+
+<div id="secondary">
+
+<div class="metabox">
+<p class="this-is">This is <strong>CaMeL offers a promising new direction for mitigating prompt injection attacks</strong> by Simon Willison, posted on <a href="/2025/Apr/11/">11th April 2025</a>.</p>
+
+<div class="series-info">
+  <p>Part of series <strong><a href="/series/prompt-injection/">Prompt injection</a></strong></p>
+  <ol start="14">
+    
+      
+        <li><a href="/2024/Jun/6/accidental-prompt-injection/">Accidental prompt injection against RAG applications</a> - June 6, 2024, 2 p.m. </li>
+      
+    
+      
+        <li><a href="/2025/Mar/20/new-openai-audio-models/">New audio models from OpenAI, but how much can we rely on them?</a> - March 20, 2025, 8:39 p.m. </li>
+      
+    
+      
+        <li><a href="/2025/Apr/9/mcp-prompt-injection/">Model Context Protocol has prompt injection security problems</a> - April 9, 2025, 12:59 p.m. </li>
+      
+    
+      
+        <li><strong>CaMeL offers a promising new direction for mitigating prompt injection attacks</strong></a> - April 11, 2025, 8:50 p.m. </li>
+      
+    
+      
+        <li><a href="/2025/Jun/13/prompt-injection-design-patterns/">Design Patterns for Securing LLM Agents against Prompt Injections</a> - June 13, 2025, 1:26 p.m. </li>
+      
+    
+      
+        <li><a href="/2025/Jun/15/ai-agent-security/">An Introduction to Google’s Approach to AI Agent Security</a> - June 15, 2025, 5:28 a.m. </li>
+      
+    
+      
+        <li><a href="/2025/Jun/16/the-lethal-trifecta/">The lethal trifecta for AI agents: private data, untrusted content, and external communication</a> - June 16, 2025, 1:20 p.m. </li>
+      
+    
+    <li style="list-style-type: none;"><a href="/series/prompt-injection/">&#8230; more</a></li>
+  </ol>
+</div>
+
+
+    
+        <a class="item-tag" href="/tags/google/" rel="tag">
+            google
+            <span>399</span>
+        </a>
+    
+        <a class="item-tag" href="/tags/python/" rel="tag">
+            python
+            <span>1230</span>
+        </a>
+    
+        <a class="item-tag" href="/tags/security/" rel="tag">
+            security
+            <span>577</span>
+        </a>
+    
+        <a class="item-tag" href="/tags/ai/" rel="tag">
+            ai
+            <span>1888</span>
+        </a>
+    
+        <a class="item-tag" href="/tags/prompt-injection/" rel="tag">
+            prompt-injection
+            <span>143</span>
+        </a>
+    
+        <a class="item-tag" href="/tags/generative-ai/" rel="tag">
+            generative-ai
+            <span>1674</span>
+        </a>
+    
+        <a class="item-tag" href="/tags/llms/" rel="tag">
+            llms
+            <span>1639</span>
+        </a>
+    
+        <a class="item-tag" href="/tags/paper-review/" rel="tag">
+            paper-review
+            <span>16</span>
+        </a>
+    
+
+
+<p><strong>Next:</strong> <a href="/2025/Apr/14/gpt-4-1/">GPT-4.1: Three new million token input models from OpenAI, including their cheapest model yet</a></p>
+
+
+<p><strong>Previous:</strong> <a href="/2025/Apr/9/mcp-prompt-injection/">Model Context Protocol has prompt injection security problems</a></p>
+
+
+<section style="
+    /* .promo */
+    border-radius: 8px;
+    margin: 1.5rem 0;
+    padding: 1rem 1.25rem;
+    /* .variant-a */
+    border: 2px solid #6c3eb9;
+  ">
+  <h3 style="
+      /* h3 */
+      margin: 0 0 0.5rem;
+      font-size: 1.25rem;
+    ">
+    Monthly briefing
+  </h3>
+  <p style="
+      /* p */
+      margin: 0 0 1rem;
+      line-height: 1.4;
+    ">
+    Sponsor me for <strong>$10/month</strong> and get a curated email digest of the month's most important LLM developments.
+  </p>
+  <p style="
+      /* p */
+      margin: 0 0 1rem;
+      line-height: 1.4;
+    ">
+    Pay me to send you less!
+  </p>
+  <a href="https://github.com/sponsors/simonw/" style="
+      /* a.button */
+      display: inline-block;
+      padding: 0.5rem 1rem;
+      background: #6c3eb9;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 4px;
+      font-weight: 600;
+    ">
+    Sponsor &amp; subscribe
+  </a>
+</section>
+</div>
+
+
+
+</div> <!-- #secondary -->
+</div> <!-- #wrapper -->
+
+
+
+
+
+
+
+
+
+
+
+<div id="ft">
+    <ul>
+      <li><a href="/about/#disclosures">Disclosures</a></li>
+      <li><a href="/about/#about-site">Colophon</a></li>
+      <li>&copy;</li>
+      <li><a href="/2002/">2002</a></li>
+      <li><a href="/2003/">2003</a></li>
+      <li><a href="/2004/">2004</a></li>
+      <li><a href="/2005/">2005</a></li>
+      <li><a href="/2006/">2006</a></li>
+      <li><a href="/2007/">2007</a></li>
+      <li><a href="/2008/">2008</a></li>
+      <li><a href="/2009/">2009</a></li>
+      <li><a href="/2010/">2010</a></li>
+      <li><a href="/2011/">2011</a></li>
+      <li><a href="/2012/">2012</a></li>
+      <li><a href="/2013/">2013</a></li>
+      <li><a href="/2014/">2014</a></li>
+      <li><a href="/2015/">2015</a></li>
+      <li><a href="/2016/">2016</a></li>
+      <li><a href="/2017/">2017</a></li>
+      <li><a href="/2018/">2018</a></li>
+      <li><a href="/2019/">2019</a></li>
+      <li><a href="/2020/">2020</a></li>
+      <li><a href="/2021/">2021</a></li>
+      <li><a href="/2022/">2022</a></li>
+      <li><a href="/2023/">2023</a></li>
+      <li><a href="/2024/">2024</a></li>
+      <li><a href="/2025/">2025</a></li>
+      <li><a href="/2026/">2026</a></li>
+      <li>
+        <button id="theme-toggle" type="button" aria-label="Toggle theme">
+          <!-- Auto/System icon (default) -->
+          <svg id="icon-auto" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm0-2V4a8 8 0 1 0 0 16z"/></svg>
+          <!-- Light icon -->
+          <svg id="icon-light" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="display:none"><path d="M12 18a6 6 0 1 1 0-12 6 6 0 0 1 0 12zm0-2a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM11 1h2v3h-2V1zm0 19h2v3h-2v-3zM3.515 4.929l1.414-1.414L7.05 5.636 5.636 7.05 3.515 4.93zM16.95 18.364l1.414-1.414 2.121 2.121-1.414 1.414-2.121-2.121zm2.121-14.85l1.414 1.415-2.121 2.121-1.414-1.414 2.121-2.121zM5.636 16.95l1.414 1.414-2.121 2.121-1.414-1.414 2.121-2.121zM23 11v2h-3v-2h3zM4 11v2H1v-2h3z"/></svg>
+          <!-- Dark icon -->
+          <svg id="icon-dark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="display:none"><path d="M10 7a7 7 0 0 0 12 4.9v.1c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2h.1A6.979 6.979 0 0 0 10 7zm-6 5a8 8 0 0 0 15.062 3.762A9 9 0 0 1 8.238 4.938 7.999 7.999 0 0 0 4 12z"/></svg>
+        </button>
+      </li>
+    </ul>
+</div>
+
+
+
+<style>image-gallery:not(:defined) img {max-height: 150px;}</style>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('h2[id],h3[id],h4[id],h5[id],h6[id]').forEach(el => {
+    const id = el.getAttribute('id');
+    const permalinkContext = el.closest('[data-permalink-context]');
+    if (permalinkContext) {
+      const url = permalinkContext.getAttribute('data-permalink-context');
+      const hashLink = document.createElement('a');
+      hashLink.style.borderBottom = 'none';
+      hashLink.style.color = '#666';
+      hashLink.style.fontSize = '1em';
+      hashLink.style.opacity = 0.8;
+      hashLink.setAttribute('href', url + '#' + id);
+      hashLink.innerText = '#';
+      el.appendChild(document.createTextNode('\u00A0'));
+      el.appendChild(hashLink);
+    }
+  });
+});
+</script>
+<script type="module">
+const config = [
+  {"tag": "lite-youtube", "js": "/static/lite-yt-embed.js", "css": "/static/lite-yt-embed.css"},
+  {"tag": "image-gallery", "js": "/static/image-gallery.js", "css": null}
+];
+for (const {tag, js, css} of config) {
+  if (document.querySelector(tag)) {
+    if (css) {
+      document.head.appendChild(
+        Object.assign(document.createElement('link'), {
+          rel: 'stylesheet',
+          href: css
+        })
+      );
+    }
+    if (js) {
+      await import(js);
+    }
+  }
+}
+</script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    if (window.localStorage.getItem('ADMIN')) {
+      document.querySelectorAll('.edit-page-link').forEach(el => {
+        const url = el.getAttribute('data-admin-url');
+        if (url) {
+          const a = document.createElement('a');
+          a.href = url;
+          a.className = 'edit-link';
+          a.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg> Edit';
+          el.appendChild(a);
+          el.style.display = 'block';
+        }
+      });
+    }
+  });
+</script>
+<script>
+// Random tag navigation - shows button if recently came from tag random
+(function() {
+  const stored = localStorage.getItem('random_tag');
+  if (!stored) return;
+
+  try {
+    const data = JSON.parse(stored);
+    const elapsed = Date.now() - data.timestamp;
+
+    // Only show if within 5 seconds
+    if (elapsed > 5000) return;
+
+    const header = document.getElementById('smallhead-inner');
+    if (!header) return;
+
+    const btn = document.createElement('a');
+    btn.href = '/random/' + encodeURIComponent(data.tag) + '/';
+    btn.className = 'random-tag-nav';
+    btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" stroke="none"></circle><circle cx="15.5" cy="8.5" r="1.5" fill="currentColor" stroke="none"></circle><circle cx="8.5" cy="15.5" r="1.5" fill="currentColor" stroke="none"></circle><circle cx="15.5" cy="15.5" r="1.5" fill="currentColor" stroke="none"></circle><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"></circle></svg> Random ' + data.tag;
+
+    btn.addEventListener('click', function(e) {
+      // Bump the timestamp before navigating
+      localStorage.setItem('random_tag', JSON.stringify({
+        tag: data.tag,
+        timestamp: Date.now()
+      }));
+    });
+
+    // Insert before the Subscribe link
+    const subscribeLink = document.getElementById('smallhead-about');
+    if (subscribeLink) {
+      header.insertBefore(btn, subscribeLink);
+    } else {
+      header.appendChild(btn);
+    }
+  } catch (e) {
+    // Invalid JSON, clear it
+    localStorage.removeItem('random_tag');
+  }
+})();
+</script>
+<script>
+// Theme toggle functionality
+(function() {
+  const toggle = document.getElementById('theme-toggle');
+  const iconAuto = document.getElementById('icon-auto');
+  const iconLight = document.getElementById('icon-light');
+  const iconDark = document.getElementById('icon-dark');
+
+  // Theme states: 'auto' (default), 'light', 'dark'
+  function getTheme() {
+    return localStorage.getItem('theme') || 'auto';
+  }
+
+  function setTheme(theme) {
+    if (theme === 'auto') {
+      localStorage.removeItem('theme');
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      localStorage.setItem('theme', theme);
+      document.documentElement.setAttribute('data-theme', theme);
+    }
+    updateIcon(theme);
+  }
+
+  function updateIcon(theme) {
+    iconAuto.style.display = theme === 'auto' ? 'block' : 'none';
+    iconLight.style.display = theme === 'light' ? 'block' : 'none';
+    iconDark.style.display = theme === 'dark' ? 'block' : 'none';
+
+    // Update aria-label for accessibility
+    const labels = {
+      'auto': 'Theme: Auto (system preference). Click to switch to light.',
+      'light': 'Theme: Light. Click to switch to dark.',
+      'dark': 'Theme: Dark. Click to switch to auto.'
+    };
+    toggle.setAttribute('aria-label', labels[theme]);
+  }
+
+  // Cycle through themes: auto -> light -> dark -> auto
+  function cycleTheme() {
+    const current = getTheme();
+    const next = current === 'auto' ? 'light' : current === 'light' ? 'dark' : 'auto';
+    setTheme(next);
+  }
+
+  // Initialize
+  updateIcon(getTheme());
+  toggle.addEventListener('click', cycleTheme);
+})();
+</script>
+</body>
+</html>
