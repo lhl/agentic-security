@@ -1,6 +1,6 @@
 # Securing AI Agents: A Comprehensive Analysis
 
-**78 papers and reports | 2022--2026 | Defense-in-depth for LLM-based agent systems**
+**79 papers and reports | 2022--2026 | Defense-in-depth for LLM-based agent systems**
 
 *Compiled March 2026*
 
@@ -75,6 +75,14 @@ LLM agents face a fundamental architectural vulnerability: **they cannot disting
 
 Concurrent work reinforces this: **AgentDyn** (Feb 2026) shows many defenses that appear effective on static benchmarks are overfit and fail on open-ended, dynamic tasks. \[arXiv:2602.03117\]
 
+### Empirical Validation in Deployed Agents
+
+**"Agents of Chaos"** (Shapira et al., Feb 2026) is the first controlled red-team study of autonomous LLM agents deployed with persistent memory, email, shell access, file systems, and Discord in a live environment. Six agents (Kimi K2.5 and Claude Opus 4.6) operated for two weeks while 20 researchers probed for vulnerabilities. The study documents 10 security failures and 6 emergent safety behaviors across 16 case studies.
+
+Key vulnerability findings: (1) **non-owner compliance**---agents followed unauthorized data requests, exposing 124+ email records without owner approval; (2) **disproportionate response**---an agent destroyed an entire mail server as a "protective" measure; (3) **semantic reframing bypasses**---an agent refused to "share" PII but complied when asked to "forward" it; (4) **identity hijacking**---agents accepted spoofed owner identity and executed full system compromise; (5) **cross-agent propagation**---a malicious "holiday" instruction injected via GitHub Gist caused one agent to attempt shutdowns and compromise other agents; (6) **infinite loops and resource exhaustion**---mutual agent relay loops and storage DoS with no recovery mechanisms.
+
+The study identifies the **social coherence problem**: agents lack stable models of social hierarchy and treat authority as conversationally constructed, making them vulnerable to whoever demonstrates sufficient confidence or persistence. Multi-agent deployments amplify this---"failures that require a single social engineering step may propagate automatically to connected agents." Notably, agents also demonstrated positive safety behaviors: rejecting 14+ prompt injection variants, refusing email spoofing, and spontaneously coordinating shared safety policies without instruction. \[arXiv:2602.20021\]
+
 ### Threat Landscape References
 
 | Paper | Year | Key Contribution |
@@ -93,6 +101,7 @@ Concurrent work reinforces this: **AgentDyn** (Feb 2026) shows many defenses tha
 | Yi et al., EchoLeak \[arXiv:2509.10540\] | 2025 | First real-world zero-click prompt injection exploit in production |
 | Nasr et al., "The Attacker Moves Second" \[arXiv:2510.09023\] | 2025 | Meta-evaluation: adaptive attacks bypass 12 defenses; >90% ASR in most cases |
 | He et al., AgentDyn \[arXiv:2602.03117\] | 2026 | Dynamic benchmark showing static-benchmark overfitting |
+| Shapira et al., "Agents of Chaos" \[arXiv:2602.20021\] | 2026 | Red-team study: 10 vulnerabilities in deployed autonomous agents over 2 weeks |
 
 ---
 
@@ -417,7 +426,7 @@ Based on the surveyed research, a production agent system should implement as ma
 
 ### Critical Gaps
 
-- **Multi-agent trust boundaries:** The confused deputy problem is identified \[arXiv:2601.11893\] but securing networks of interacting agents with delegation chains remains open. SAGA \[arXiv:2504.21034\] and Firewalls for Agentic Networks \[arXiv:2502.01822\] are early steps.
+- **Multi-agent trust boundaries:** The confused deputy problem is identified \[arXiv:2601.11893\] but securing networks of interacting agents with delegation chains remains open. "Agents of Chaos" \[arXiv:2602.20021\] empirically demonstrates cross-agent propagation of compromised states in deployed systems. SAGA \[arXiv:2504.21034\] and Firewalls for Agentic Networks \[arXiv:2502.01822\] are early steps.
 
 - **Persistent memory poisoning:** Memory injection \[arXiv:2503.03704\], experience poisoning \[arXiv:2512.16962\], and RAG store attacks \[arXiv:2407.12784\] are demonstrated but no defense specifically addresses temporal persistence. Most current defenses assume stateless single-turn interactions.
 
@@ -426,6 +435,8 @@ Based on the surveyed research, a production agent system should implement as ma
 - **Visual and computer-use agent attacks:** As agents operate through GUIs and rendered content, prompt injection extends to the pixel layer \[arXiv:2506.02456, arXiv:2505.21936\]. No architectural defense addresses this yet.
 
 - **Evaluation under adaptive attack:** AgentDyn \[arXiv:2602.03117\] and "The Attacker Moves Second" \[arXiv:2510.09023\] show that most current claims don't survive stronger threat models. The field needs adversarial evaluation as standard practice.
+
+- **Social hierarchy and authority management:** "Agents of Chaos" \[arXiv:2602.20021\] reveals a fundamental gap: agents treat authority as conversationally constructed rather than cryptographically or architecturally enforced. Semantic reframing bypasses, spoofed identity acceptance, and non-owner compliance are not addressed by any current defense framework. This intersects with but is distinct from the confused deputy problem---it is about who the agent believes it should obey, not just what it is allowed to do.
 
 ### Structural Challenges
 
@@ -459,6 +470,7 @@ Year reflects the year field in `references/bib/*.bib` (typically the latest arX
 | arXiv:2406.13352 | AgentDojo | 2024 | **A** |
 | arXiv:2410.02644 | Agent Security Bench (ASB) | 2025 | **A** |
 | arXiv:2602.03117 | AgentDyn | 2026 | **A** |
+| arXiv:2602.20021 | Agents of Chaos (deployed agent red-team) | 2026 | **A** |
 | arXiv:2306.05499 | HouYi (PI against commercial apps) | 2025 | **B** |
 | arXiv:2403.03792 | Neural Exec (learned triggers) | 2024 | **B** |
 | arXiv:2407.12784 | AgentPoison (memory/RAG attacks) | 2024 | **B** |
