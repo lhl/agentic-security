@@ -331,7 +331,7 @@ Rust provides the strongest language-level safety guarantees, which is reflected
 | agentsh | [ANALYSIS-agentsh.md](ANALYSIS-agentsh.md) | 374 | Most comprehensive execution-layer security; MCP security standout |
 | openfang | [ANALYSIS-openfang.md](ANALYSIS-openfang.md) | 352 | 16 independent security systems; taint tracking underintegrated |
 | ironclaw | [ANALYSIS-ironclaw.md](ANALYSIS-ironclaw.md) | 328 | Exemplary adversarial testing; zero-exposure credentials; no TEE despite privacy focus |
-| shisad | [ANALYSIS-shisad-v2.md](ANALYSIS-shisad-v2.md) | 420 | Metadata-only PEP is structurally injection-proof; endorsement/taint separation novel |
+| shisad | [ANALYSIS-shisad-v0.5.md](ANALYSIS-shisad-v0.5.md) | 420 | Metadata-only PEP is structurally injection-proof; endorsement/taint separation novel |
 | openclaw | [ANALYSIS-openclaw.md](ANALYSIS-openclaw.md) | 349 | Surprisingly security-mature for baseline; TLA+ formal verification; security audit CLI |
 | hermes-agent | [ANALYSIS-hermes-agent.md](ANALYSIS-hermes-agent.md) | 366 | Strong baseline with supply chain CI, DM pairing (OWASP/NIST), tirith scanner |
 
