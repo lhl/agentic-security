@@ -1,0 +1,18 @@
+[submodule "frameworks/agentsh"]
+	path = frameworks/agentsh
+	url = https://github.com/canyonroad/agentsh.git
+[submodule "frameworks/openfang"]
+	path = frameworks/openfang
+	url = https://github.com/RightNow-AI/openfang.git
+[submodule "frameworks/ironclaw"]
+	path = frameworks/ironclaw
+	url = https://github.com/nearai/ironclaw.git
+[submodule "frameworks/shisad"]
+	path = frameworks/shisad
+	url = https://github.com/shisa-ai/shisad.git
+[submodule "frameworks/openclaw"]
+	path = frameworks/openclaw
+	url = https://github.com/openclaw/openclaw.git
+[submodule "frameworks/hermes-agent"]
+	path = frameworks/hermes-agent
+	url = https://github.com/NousResearch/hermes-agent.git

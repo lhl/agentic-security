@@ -1,4 +1,4 @@
-# Ignore shisad docs
-shisad/
+# Ignore shisad docs (root-level only)
+/shisad/
 
 __pycache__/
