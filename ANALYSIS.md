@@ -1,6 +1,6 @@
 # Securing AI Agents: A Comprehensive Analysis
 
-**79 papers and reports | 2022--2026 | Defense-in-depth for LLM-based agent systems**
+**80 papers and reports | 2022--2026 | Defense-in-depth for LLM-based agent systems**
 
 *Compiled March 2026*
 
@@ -83,6 +83,24 @@ Key vulnerability findings: (1) **non-owner compliance**---agents followed unaut
 
 The study identifies the **social coherence problem**: agents lack stable models of social hierarchy and treat authority as conversationally constructed, making them vulnerable to whoever demonstrates sufficient confidence or persistence. Multi-agent deployments amplify this---"failures that require a single social engineering step may propagate automatically to connected agents." Notably, agents also demonstrated positive safety behaviors: rejecting 14+ prompt injection variants, refusing email spoofing, and spontaneously coordinating shared safety policies without instruction. \[arXiv:2602.20021\]
 
+### Systematic Taxonomy of Environmental Attacks
+
+**"AI Agent Traps"** (Franklin et al., Google DeepMind, 2026) introduces the first systematic framework for classifying adversarial content embedded in the information environment---web pages, emails, APIs, and databases---engineered to exploit visiting AI agents. Unlike prior work that focuses on specific attack types, this paper taxonomizes environmental attacks by the agent functional component they target, identifying six categories with 22 subcategories:
+
+1. **Content Injection Traps** (perception): Exploit the gap between human-visible rendering and machine-parsed data. Subcategories: *web-standard obfuscation* (CSS/HTML hidden text), *dynamic cloaking* (fingerprinting agent visitors to serve tailored payloads), *steganographic payloads* (adversarial instructions in image pixel arrays), *syntactic masking* (exploiting Markdown/LaTeX parsing to hide payloads).
+
+2. **Semantic Manipulation Traps** (reasoning): Corrupt the agent's reasoning without overt commands. Subcategories: *biased phrasing, framing & contextual priming* (skewing output via sentiment-laden or authoritative language), *oversight & critic evasion* (wrapping malicious instructions in educational/hypothetical framing to bypass safety filters), *persona hyperstition* (seeding circulating narratives about a model's identity that feed back via retrieval, stabilizing attacker-chosen behavior).
+
+3. **Cognitive State Traps** (memory & learning): Target long-term memory, knowledge bases, and learned policies. Subcategories: *RAG knowledge poisoning* (fabricated documents in retrieval corpora), *latent memory poisoning* (innocuous data that activates as malicious in specific future contexts), *contextual learning traps* (corrupted few-shot demonstrations or reward signals that steer in-context learning).
+
+4. **Behavioural Control Traps** (action): Hijack the agent's instruction-following capabilities. Subcategories: *embedded jailbreak sequences* (dormant adversarial prompts in external resources), *data exfiltration traps* (confused deputy attacks inducing the agent to leak privileged data), *sub-agent spawning traps* (coercing orchestrators to instantiate attacker-controlled sub-agents within the trusted control flow).
+
+5. **Systemic Traps** (multi-agent dynamics): Trigger macro-level failures through correlated agent behavior. Subcategories: *congestion traps* (synchronizing agents into exhaustive resource competition), *interdependence cascades* (self-reinforcing failure spirals analogous to financial flash crashes), *tacit collusion* (environmental signals as correlation devices for anti-competitive behavior without direct communication), *compositional fragment traps* (partitioning a payload across multiple data sources that reconstitutes upon multi-agent aggregation), *Sybil attacks* (fabricated agent identities to manipulate collective decision-making).
+
+6. **Human-in-the-Loop Traps** (human overseer): Commandeer the agent to attack the human user. Includes approval fatigue (generating benign-looking outputs that overwhelm human reviewers), social engineering via agent (inducing users to click malicious links), and exploiting automation bias.
+
+The key insight is that the attack surface is **combinatorial**: traps from different categories can be chained, stacked, or spread across multi-agent systems. Content injection may deliver a behavioural control payload, while systemic traps exploit the interaction dynamics to amplify single-agent compromises into ecosystem-wide failures. The Systemic Traps and Human-in-the-Loop Traps categories are largely novel---they represent a theoretical but increasingly plausible attack surface as agent economies scale. The paper's mitigation discussion identifies three strategic challenges: detection at web scale, attribution (tracing a compromised output to the specific trap), and the continuous adaptation arms race. \[SSRN:6372438\]
+
 ### Threat Landscape References
 
 | Paper | Year | Key Contribution |
@@ -102,6 +120,7 @@ The study identifies the **social coherence problem**: agents lack stable models
 | Nasr et al., "The Attacker Moves Second" \[arXiv:2510.09023\] | 2025 | Meta-evaluation: adaptive attacks bypass 12 defenses; >90% ASR in most cases |
 | He et al., AgentDyn \[arXiv:2602.03117\] | 2026 | Dynamic benchmark showing static-benchmark overfitting |
 | Shapira et al., "Agents of Chaos" \[arXiv:2602.20021\] | 2026 | Red-team study: 10 vulnerabilities in deployed autonomous agents over 2 weeks |
+| Franklin et al., "AI Agent Traps" \[SSRN:6372438\] | 2026 | First systematic taxonomy of environmental attacks on agents; 6 categories, 22 subcategories |
 
 ---
 
@@ -418,7 +437,7 @@ Based on the surveyed research, a production agent system should implement as ma
 
 ### Cross-Cutting: Memory Trust Zones
 
-**Split memory into trust zones.** Ephemeral task memory, long-term memory, and imported knowledge should not share a flat trust domain. \[arXiv:2407.12784, arXiv:2503.03704, arXiv:2512.16962\]
+**Split memory into trust zones.** Ephemeral task memory, long-term memory, and imported knowledge should not share a flat trust domain. "AI Agent Traps" \[SSRN:6372438\] systematizes these threats as "cognitive state traps"---including latent memory poisoning (innocuous data that activates maliciously in future contexts) and contextual learning traps (corrupted demonstrations steering in-context learning). \[arXiv:2407.12784, arXiv:2503.03704, arXiv:2512.16962, SSRN:6372438\]
 
 ---
 
@@ -437,6 +456,12 @@ Based on the surveyed research, a production agent system should implement as ma
 - **Evaluation under adaptive attack:** AgentDyn \[arXiv:2602.03117\] and "The Attacker Moves Second" \[arXiv:2510.09023\] show that most current claims don't survive stronger threat models. The field needs adversarial evaluation as standard practice.
 
 - **Social hierarchy and authority management:** "Agents of Chaos" \[arXiv:2602.20021\] reveals a fundamental gap: agents treat authority as conversationally constructed rather than cryptographically or architecturally enforced. Semantic reframing bypasses, spoofed identity acceptance, and non-owner compliance are not addressed by any current defense framework. This intersects with but is distinct from the confused deputy problem---it is about who the agent believes it should obey, not just what it is allowed to do.
+
+- **Systemic and human-in-the-loop attacks:** "AI Agent Traps" \[SSRN:6372438\] identifies two largely novel attack surfaces: systemic traps (congestion, cascades, tacit collusion, compositional fragments, Sybil attacks targeting multi-agent dynamics) and human-in-the-loop traps (exploiting the agent to attack the human overseer via approval fatigue or social engineering). No defense framework addresses either category. Systemic traps draw on game theory and financial contagion models; benchmarking them requires multi-agent simulation environments that do not yet exist.
+
+- **Combinatorial trap chaining:** Individual attack vectors can be composed---a content injection trap delivering a behavioural control payload, or compositional fragments that reconstitute only upon multi-agent aggregation. Current defenses evaluate attack categories in isolation. The combinatorial attack surface identified by \[SSRN:6372438\] needs evaluation methodology.
+
+- **Accountability Gap for compromised agents:** When a compromised agent commits a financial crime or privacy violation, liability allocation between agent operator, model provider, and malicious domain owner remains an open legal question \[SSRN:6372438\]. No technical framework addresses forensic attribution from agent output back to the specific environmental trap that caused the compromise.
 
 ### Structural Challenges
 
@@ -471,6 +496,7 @@ Year reflects the year field in `references/bib/*.bib` (typically the latest arX
 | arXiv:2410.02644 | Agent Security Bench (ASB) | 2025 | **A** |
 | arXiv:2602.03117 | AgentDyn | 2026 | **A** |
 | arXiv:2602.20021 | Agents of Chaos (deployed agent red-team) | 2026 | **A** |
+| SSRN:6372438 | AI Agent Traps (environmental attack taxonomy) | 2026 | **A** |
 | arXiv:2306.05499 | HouYi (PI against commercial apps) | 2025 | **B** |
 | arXiv:2403.03792 | Neural Exec (learned triggers) | 2024 | **B** |
 | arXiv:2407.12784 | AgentPoison (memory/RAG attacks) | 2024 | **B** |

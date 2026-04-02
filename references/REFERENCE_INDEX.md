@@ -2,11 +2,12 @@
 
 Topic-organized index of references under `references/`, including title, short summary, and local/source links.
 
-- Generated: 2026-03-05
-- Total references: 78
+- Generated: 2026-04-02
+- Total references: 79
 
-## Threat Model & Benchmarks (26)
+## Threat Model & Benchmarks (27)
 
+- **AI Agent Traps** (`2026`; `SSRN:6372438`) ([pdf](papers/ssrn-6372438.pdf), [source](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6372438)) - First systematic taxonomy of environmental attacks on AI agents; categorizes 22 trap types across 6 categories (content injection, semantic manipulation, cognitive state, behavioural control, systemic, human-in-the-loop) targeting distinct agent functional components.
 - **A Practical Memory Injection Attack against LLM Agents (MINJA)** (`2026`; `arXiv:2503.03704`) ([pdf](papers/arxiv-2503.03704.pdf), [text](papers/arxiv-2503.03704.md), [source](https://arxiv.org/abs/2503.03704)) - Practical query-only persistent memory injection attack.
 - **AgentDyn: A Dynamic Open-Ended Benchmark for Evaluating Prompt Injection Attacks of Real-World Agent Security System** (`2026`; `arXiv:2602.03117`) ([pdf](papers/arxiv-2602.03117.pdf), [text](papers/arxiv-2602.03117.md), [source](https://arxiv.org/abs/2602.03117)) - Shows many current defenses are overfit/over-defensive on stronger, open-ended tasks.
 - **ASIDE: Architectural Separation of Instructions and Data in Language Models** (`2026`; `arXiv:2503.10566`) ([pdf](papers/arxiv-2503.10566.pdf), [text](papers/arxiv-2503.10566.md), [source](https://arxiv.org/abs/2503.10566)) - Despite their remarkable performance, large language models lack elementary safety features, making them susceptible to numerous malicious attacks.
