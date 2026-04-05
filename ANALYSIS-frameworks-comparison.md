@@ -1,8 +1,8 @@
 # Production Agent Framework Security Comparison
 
-**6 frameworks | 4 security-focused + 2 baseline | Point-in-time: 2026-04-04**
+**6 frameworks | 4 security-focused + 2 baseline | Point-in-time: 2026-04-06**
 
-*Cross-cutting synthesis of individual framework analyses against the ANALYSIS.md defense taxonomy (79 papers, 7 defense categories). Updated to reflect shisad v0.6.0 (COMMAND/TASK orchestration, supply chain hardening, browser tool surface).*
+*Cross-cutting synthesis of individual framework analyses against the ANALYSIS.md defense taxonomy (79 papers, 7 defense categories). Updated to reflect shisad v0.6.1 (process-isolated control plane, PromptGuard 2 ML injection classifier, Tool Dependency Graph verification, phantom action detection).*
 
 ---
 
@@ -20,7 +20,7 @@ We analyzed six production agent frameworks -- four marketed as security-focused
 
 4. **Defense-in-depth is genuinely implemented, not just marketed.** Unlike the academic landscape where most papers propose a single defense layer, every production framework layers multiple independent mechanisms. agentsh layers 5 kernel-level enforcement points; openfang has 16 independent security systems; shisad chains PEP + control-plane consensus + behavioral analysis + sandbox isolation.
 
-5. **Pattern-based prompt injection detection is universal and universally insufficient.** Every framework that attempts injection detection uses regex/keyword matching. None deploys an ML-based classifier. All acknowledge this limitation to varying degrees. ironclaw is the most transparent, with adversarial tests that explicitly document known bypass vectors.
+5. **Pattern-based prompt injection detection is nearly universal and universally insufficient on its own.** Every framework that attempts injection detection includes regex/keyword matching. shisad v0.6.1 is now the first to also deploy an ML-based classifier (PromptGuard 2, local ONNX inference with signed model-packs) alongside its pattern + YARA layers. All other frameworks remain pattern-only. ironclaw is the most transparent about limitations, with adversarial tests that explicitly document known bypass vectors.
 
 ---
 
@@ -31,7 +31,7 @@ We analyzed six production agent frameworks -- four marketed as security-focused
 | **agentsh** | Security | Go | ~240K lines, 493 test files | Execution-layer gateway (FUSE + seccomp + ptrace + Landlock + eBPF) | Interpose between agent and OS; enforce policy at the syscall layer |
 | **openfang** | Security | Rust | ~177K lines, 1,767+ tests | Agent OS with 14 crates | Deny-by-default capabilities + WASM sandbox + taint tracking |
 | **ironclaw** | Security | Rust | v0.22.0, 5 fuzz targets | Privacy-first assistant with extracted safety crate | Zero-exposure credentials + multi-layer safety pipeline |
-| **shisad** | Security | Python | v0.6.0; ~107K lines (src+tests+scripts); 1,368 test functions | Security-first daemon with COMMAND/TASK orchestration + metadata-only control plane | LLM proposes, runtime decides; formal orchestrator/subagent split with taint-safe handoffs |
+| **shisad** | Security | Python | v0.6.1; ~114K lines (src+tests+scripts); 1,522 test functions | Security-first daemon with COMMAND/TASK orchestration + process-isolated control plane + PromptGuard 2 | LLM proposes, runtime decides; formal orchestrator/subagent split with taint-safe handoffs |
 | **openclaw** | Baseline | TypeScript | ~3,050 src + 3,313 test files | Personal assistant with Gateway control plane | Single trusted operator; strong defaults without killing capability |
 | **hermes-agent** | Baseline | Python | ~10K+ main file, 100+ tests | Self-improving agent with multi-platform gateway | Pragmatic defense-in-depth for a single-user agent |
 
@@ -49,7 +49,7 @@ Ratings: **Strong** = substantive implementation with meaningful coverage. **Par
 | 3.2 Access Control | **Strong** | **Strong** | **Strong** | **Strong** | **Strong** | Partial |
 | 3.3 Runtime Verification | **Strong** | **Strong** | Partial | **Strong** | Partial | Partial |
 | 3.4 Detection & Filtering | Partial | Partial | Partial | **Strong** | Partial | Partial |
-| 3.5 Model Hardening | None | None | None | Minimal | Minimal | None |
+| 3.5 Model Hardening | None | None | None | Partial | Minimal | None |
 | 3.6 Boundary Marking | Partial | Partial | Partial | **Strong** | Partial | None |
 | 3.7 Formal Methods | None | None | None | None | Partial | None |
 
@@ -64,11 +64,11 @@ Ratings: **Strong** = substantive implementation with meaningful coverage. **Par
 | **agentsh** | Control plane (daemon) / data plane (agent process) separation; taint-aware policy via process ancestry chains | No IFC, no dual-LLM, no typed data flow; operates below intent layer |
 | **openfang** | Kernel/runtime separation via `KernelHandle` trait; lattice-based taint tracking with labeled sinks | Taint appears underintegrated with agent loop; no dual-LLM; no formal non-interference |
 | **ironclaw** | Trusted host / untrusted sandbox separation; boundary wrapping for tool outputs | No IFC, no dual-LLM; single-LLM architecture for planning and execution |
-| **shisad** | Three-tier context scaffold; metadata-only control plane; formal COMMAND/TASK orchestrator/subagent split with immutable task envelopes; structured ArtifactLedger with endorsement tracking and metadata MAC; mandatory summary-firewall checkpoint at TASK→COMMAND boundary; taint-sink enforcement; approval provenance binding | Taint at content-block level, not variable level; control plane in-process (coding convention, not OS isolation) |
+| **shisad** | Three-tier context scaffold; metadata-only control plane in process-isolated sidecar (Unix socket + peer credential auth); formal COMMAND/TASK orchestrator/subagent split with immutable task envelopes; structured ArtifactLedger with endorsement tracking and metadata MAC; mandatory summary-firewall checkpoint at TASK→COMMAND boundary; taint-sink enforcement; approval provenance binding; Tool Dependency Graph verification | Taint at content-block level, not variable level |
 | **openclaw** | Gateway / sandbox separation; plugin SDK import boundaries; per-session isolation | In-process plugin execution; logical not process-level session isolation |
 | **hermes-agent** | Code sandbox with stripped env and RPC; subagent isolation with restricted toolsets | No formal architectural model; shared process space for tool system |
 
-**Assessment:** shisad v0.6.0 now implements the CaMeL-inspired dual-agent architecture as a first-class runtime concept: `SessionRole` enum (ORCHESTRATOR/SUBAGENT) is immutable at session creation, task envelopes carry frozen capability snapshots and credential refs, TASK→COMMAND handoffs must pass a mandatory summary-firewall checkpoint, and the structured ArtifactLedger tracks artifact lifecycle (active/expired/quarantined) and endorsement state (unendorsed/user_endorsed/system_endorsed) with HMAC-bound metadata. This closes the largest gap identified in the v0.5 analysis. openfang's taint tracking is the most formally structured (lattice-based with typed sinks) but its integration into the actual execution flow is unclear. No framework achieves variable-level provenance tracking.
+**Assessment:** shisad v0.6.1 implements the CaMeL-inspired dual-agent architecture as a first-class runtime concept with process-isolated enforcement: `SessionRole` enum (ORCHESTRATOR/SUBAGENT) is immutable at session creation, task envelopes carry frozen capability snapshots and credential refs, TASK→COMMAND handoffs must pass a mandatory summary-firewall checkpoint, the structured ArtifactLedger tracks artifact lifecycle and endorsement state with HMAC-bound metadata, and the control plane now runs in a separate OS process (Unix socket sidecar with UID+PID peer credential authorization). v0.6.1 also adds Tool Dependency Graph verification -- actions must trace back to committed user intent through dependency paths. openfang's taint tracking is the most formally structured (lattice-based with typed sinks) but its integration into the actual execution flow is unclear. No framework achieves variable-level provenance tracking.
 
 #### 3.2 Access Control and Governance
 
@@ -79,7 +79,7 @@ Ratings: **Strong** = substantive implementation with meaningful coverage. **Par
 | **agentsh** | Process-level (file/net/cmd/env/signal rules) | YAML DSL with globs, regex, variable expansion | Command + args pattern matching; first-match-wins | Tool whitelisting, version pinning, rate limits | TTY, TOTP, WebAuthn, REST API |
 | **openfang** | 22-variant typed `Capability` enum with globs | TOML config + `ToolPolicy` struct | Deny-wins glob rules; group expansion; depth restrictions | MCP server config | Per-agent approval manager |
 | **ironclaw** | WASM capability flags (HTTP, workspace, tools, secrets) | JSON sidecar `.capabilities.json` | Autonomous tool denylist (17 tools) | MCP client | Tool approval mechanism |
-| **shisad** | Session capability set (10 capabilities) + task-envelope credential scoping | YAML with Pydantic validation + hot reload + typed semantic atom validation | Per-tool allowlist + schema validation + argument DLP + resource-scope enforcement | Not implemented (v0.6.3 planned) | Nonce-based confirmation + PEP re-evaluation + approval provenance binding |
+| **shisad** | Session capability set (10 capabilities) + task-envelope credential scoping + Tool Dependency Graph (TDG) resource grounding | YAML with Pydantic validation + hot reload + typed semantic atom validation | Per-tool allowlist + schema validation + argument DLP + resource-scope enforcement + TDG dependency path verification | Not implemented (v0.6.3 planned) | Nonce-based confirmation + PEP re-evaluation + approval provenance binding + capability elevation |
 | **openclaw** | 5-level operator RBAC | Config + tool profiles | Allow/deny lists; owner-only tools; safe bins | Not implemented | Interactive UUID-based; single-use; time-limited |
 | **hermes-agent** | Toolset enable/disable | Config YAML | Blocked toolsets; sandbox tool allowlist (7 tools) | Not implemented | 3 modes: manual, smart (LLM), off |
 
@@ -94,11 +94,11 @@ Ratings: **Strong** = substantive implementation with meaningful coverage. **Par
 | **agentsh** | Command policy eval | FUSE + seccomp + ptrace + Landlock + eBPF | MCP cross-server exfiltration patterns | Not explicit | Allow/deny/approve/redirect |
 | **openfang** | Capability + tool policy + approval | WASM fuel + epoch metering | Phantom action detection (hallucinated tool use) | Loop guard with circuit breaker; ping-pong detection | Allow -> Warn -> Block -> CircuitBreak |
 | **ironclaw** | Sanitizer + validator + policy | WASM fuel + memory limits + timeout | Not implemented | Not implemented | Block/Warn/Review/Sanitize |
-| **shisad** | PEP 8-check pipeline + control-plane consensus + typed semantic validation | Sandbox with network isolation + browser element-binding hash verification | 5 behavioral sequence patterns; plan commitment verification; TASK close-gate self-check | Rate limiting; lockdown escalation; tool-schema-hash drift detection | Auto-approve -> Confirm -> Deny -> Lockdown (4 levels) + approval provenance binding (session/nonce/timestamp) |
+| **shisad** | PEP 8-check pipeline + control-plane consensus + typed semantic validation + Tool Dependency Graph (TDG) verification | Sandbox with network isolation + browser element-binding hash verification | 5 behavioral sequence patterns; plan commitment verification; TASK close-gate self-check; phantom action detection (3 deny rules) | Rate limiting; lockdown escalation; tool-schema-hash drift detection (with audit events); TDG plan stage transitions | Auto-approve -> Confirm -> Deny -> Lockdown (4 levels) + approval provenance binding (session/nonce/timestamp) + capability elevation |
 | **openclaw** | Tool policy + ACP approval classifier | Docker sandbox validation | Not implemented | Not implemented | Auto-approve/ask/deny; allow-once/always |
 | **hermes-agent** | Dangerous command patterns + tirith scanner | Container isolation (when used) | Not implemented | Read-loop detection | Manual/smart/off approval |
 
-**Assessment:** shisad v0.6.0 has the most sophisticated runtime verification with its 5-voter consensus system, behavioral sequence analysis, 4-level lockdown escalation, and new approval provenance binding (every approval carries session ID, task envelope ID, timestamp, and one-time nonce -- preventing replay across task/session boundaries). The browser tool surface adds element-binding hash verification (confirmation fails if DOM changed at the same URL) and source/destination URL binding. agentsh has the deepest kernel-level enforcement with 5 independent OS-level interception points. openfang's loop guard with ping-pong pattern detection and circuit breaker is a pragmatic feature other frameworks lack. No framework implements the trace-level program analysis (CFG/DFG/PDG) seen in AgentArmor or the causal independence testing of MELON.
+**Assessment:** shisad v0.6.1 has the most sophisticated runtime verification with its 5-voter consensus system, behavioral sequence analysis, 4-level lockdown escalation, approval provenance binding, and new Tool Dependency Graph verification (actions must trace to committed user intent through dependency paths; ungrounded reads → confirmation, ungrounded writes → block). v0.6.1 also adds phantom action detection (repeated denied actions trigger structured audit events for operator alerting). agentsh has the deepest kernel-level enforcement with 5 independent OS-level interception points. openfang's loop guard with ping-pong pattern detection and circuit breaker is a pragmatic feature other frameworks lack. No framework implements the trace-level program analysis (CFG/DFG/PDG) seen in AgentArmor or the causal independence testing of MELON, though shisad's TDG verification is the closest production approximation of structured plan verification.
 
 #### 3.4 Detection, Filtering, and Firewalls
 
@@ -109,19 +109,19 @@ Ratings: **Strong** = substantive implementation with meaningful coverage. **Par
 | **agentsh** | MCP suspicious pattern scanning | DLP regex (email, phone, CC, SSN, API keys) | eBPF + threat feed integration | Package install checking | Not documented |
 | **openfang** | 10 keyword patterns + 9 exfil patterns + 3 shell patterns | Secret zeroization; env stripping | SSRF (multi-layer IP blocking + DNS rebinding defense) | Ed25519 manifest signing + SHA256 skill checksums | Shell bleed detection |
 | **ironclaw** | 18+ Aho-Corasick literals + 4 regex patterns | 16 API key patterns + credential detection | SSRF + endpoint allowlisting | cargo-deny; Ed25519 webhooks | Unicode bypass vectors documented but unfixed |
-| **shisad** | Pattern + YARA (13 rule files) + multi-layer base64 decoding + browser DOM-drift detection | Secret detection + PII redaction + argument DLP + terminal control-sequence sanitization | Egress allowlisting with provenance-aware routing + browser domain scope enforcement | Ed25519 skill signatures + dependency chain verification + multi-engine analysis + tool-schema-hash inventory + OIDC trusted publishing + SBOM + build attestations + pip-audit + pinned CI actions | Recursive encoding unwrapping (2 layers) |
+| **shisad** | Pattern + YARA (13 rule files) + **PromptGuard 2 ML classifier** (local ONNX, signed model-packs) + multi-layer base64 decoding + browser DOM-drift detection | Secret detection + PII redaction + argument DLP + terminal control-sequence sanitization | Egress allowlisting with provenance-aware routing + browser domain scope enforcement | Ed25519 skill signatures + dependency chain verification + multi-engine analysis + tool-schema-hash inventory (with audit events) + OIDC trusted publishing + SBOM + build attestations + pip-audit + pinned CI actions + signed PromptGuard model-packs | Recursive encoding unwrapping (2 layers) |
 | **openclaw** | External content wrapping with injection pattern logging | detect-secrets CI (433KB baseline) | SSRF with DNS rebinding defense | Skill scanner | Exec obfuscation detection (base64, hex, Unicode) |
 | **hermes-agent** | Cron prompt injection scanning only | 20+ API key prefix patterns + PII redaction | SSRF (browser tool only) | CI supply chain audit + tirith binary verification | ANSI stripping + Unicode NFKC normalization |
 
-**Assessment:** shisad v0.6.0's content firewall is the most comprehensive with YARA rules covering 13 attack categories, recursive encoding detection, terminal control-sequence sanitization (ANSI CSI, OSC, DCS/APC/PM/SOS, stray ESC, C0/C1), and browser-surface DOM-drift detection via element-binding hashes. Its supply chain hardening is now the most thorough in this comparison: OIDC trusted publishing, SBOM generation, build provenance attestations, pip-audit with hash verification, pinned CI actions (immutable SHAs), dependency-review gates, zizmor workflow linting, lockfile drift guards, adapter runtime lockdown (`SHISAD_REQUIRE_LOCAL_ADAPTERS`), and tool-schema-hash inventory for skill drift detection. agentsh's MCP-specific detection (cross-server exfiltration, rug-pull, shadow tool replacement) addresses threats no other framework detects. ironclaw's adversarial testing methodology -- explicitly documenting known bypass vectors -- is exemplary. All detection is pattern-based; no framework deploys an ML classifier (shisad plans PromptGuard 2 integration for v0.6.1). The gap between these systems and LlamaFirewall (production at Meta with PromptGuard 2 neural classifier) is significant but closing.
+**Assessment:** shisad v0.6.1's content firewall is now the most comprehensive with YARA rules covering 13 attack categories, PromptGuard 2 ML classifier (local ONNX inference with signed model-packs), recursive encoding detection, terminal control-sequence sanitization (ANSI CSI, OSC, DCS/APC/PM/SOS, stray ESC, C0/C1), and browser-surface DOM-drift detection via element-binding hashes. The ML classifier operates alongside pattern + YARA via `max()` score merging -- it can only escalate, never suppress pattern findings. Three postures (off/best_effort/required) allow operators to control the failure mode. Its supply chain hardening remains the most thorough: OIDC trusted publishing, SBOM generation, build provenance attestations, pip-audit with hash verification, pinned CI actions (immutable SHAs), dependency-review gates, zizmor workflow linting, lockfile drift guards, adapter runtime lockdown, tool-schema-hash inventory (now with structured audit events on drift), and signed PromptGuard model-packs. agentsh's MCP-specific detection (cross-server exfiltration, rug-pull, shadow tool replacement) addresses threats no other framework detects. ironclaw's adversarial testing methodology -- explicitly documenting known bypass vectors -- is exemplary. shisad is now the first open-source agent framework to deploy an ML-based injection classifier. The gap between these systems and LlamaFirewall (production at Meta) has narrowed significantly -- same underlying PromptGuard 2 model, now available in the open-source landscape.
 
 #### 3.5 Model-Level Hardening
 
 *The gold standard: SecAlign/Meta SecAlign preference optimization or instruction hierarchy.*
 
-**No framework implements model-level hardening.** All six are model-agnostic and explicitly treat the LLM as an untrusted component. shisad's action monitor uses simple heuristics (suspicious keyword matching in arguments) which is minimal. openclaw recommends "strongest latest-generation models" to reduce injection risk.
+**No framework implements model-level hardening in the SecAlign sense** (preference optimization or instruction hierarchy). All six are model-agnostic and explicitly treat the LLM as an untrusted component. shisad v0.6.1 now deploys PromptGuard 2 as a content-seeing detection layer -- while this is not model-level hardening (it doesn't change the model's behavior), it provides ML-based input classification that screens untrusted content before it reaches the LLM context, reducing exposure to injection payloads. openclaw recommends "strongest latest-generation models" to reduce injection risk.
 
-This is the correct design choice for multi-provider frameworks, but it means that instruction hierarchy and preference optimization -- which research shows provide meaningful (if insufficient) baseline resistance -- are entirely absent from the production stack.
+This is the correct design choice for multi-provider frameworks, but it means that instruction hierarchy and preference optimization -- which research shows provide meaningful (if insufficient) baseline resistance -- are entirely absent from the production stack. PromptGuard 2 as an input filter is the closest any open-source framework comes to ML-based defense.
 
 #### 3.6 Boundary Marking and Cryptographic Provenance
 
@@ -132,11 +132,11 @@ This is the correct design choice for multi-provider frameworks, but it means th
 | **agentsh** | None | HMAC chain + external KMS (AWS/Azure/GCP/Vault) | Ed25519 policy signatures | DLP redaction in LLM proxy |
 | **openfang** | None | Merkle SHA-256 hash chain | Ed25519 manifest signing | AES-256-GCM vault + Argon2 KDF + zeroization |
 | **ironclaw** | XML boundary wrapping + delimiter escape | None | Ed25519 webhook verification | AES-256-GCM + HKDF-SHA256 per-secret keys + OS keychain |
-| **shisad** | Random cryptographic delimiters + datamarking + three-tier placement + mandatory TASK→COMMAND summary-firewall checkpoint | Append-only audit log + ArtifactLedger with HMAC-bound metadata MAC + approval provenance (session/nonce/timestamp) | SHA256 policy integrity + SIGHUP-only reload + tool-schema-hash inventory + OIDC trusted publishing + SBOM + build attestations | Credential broker with placeholders + proxy-level injection + task-envelope-scoped credential refs |
+| **shisad** | Random cryptographic delimiters + datamarking + three-tier placement + mandatory TASK→COMMAND summary-firewall checkpoint + process-isolated control plane (Unix socket + peer cred auth) | Append-only audit log + ArtifactLedger with HMAC-bound metadata MAC + approval provenance (session/nonce/timestamp) + phantom action audit events | SHA256 policy integrity + SIGHUP-only reload + tool-schema-hash inventory (with drift audit events) + OIDC trusted publishing + SBOM + build attestations + signed PromptGuard model-packs | Credential broker with placeholders + proxy-level injection + task-envelope-scoped credential refs |
 | **openclaw** | Randomized XML boundary markers with security notices | None | None | Environment variable sanitization in sandbox |
 | **hermes-agent** | None | None | None | Env var filtering in code sandbox |
 
-**Assessment:** shisad v0.6.0's approach is the most comprehensive -- cryptographically random delimiters, character-level datamarking, three-tier context placement, provenance annotations, and now a mandatory summary-firewall checkpoint at the TASK→COMMAND boundary (TASK output cannot reach orchestrator context without passing the content firewall). The structured ArtifactLedger with HMAC-bound metadata MAC provides tamper detection for persisted evidence refs. agentsh has the strongest audit integrity (HMAC chains with external KMS from four major cloud providers). For credential protection, ironclaw's zero-exposure model (WASM tools never see secrets, injection at host boundary, leak detection at both request and response boundaries) and shisad's credential broker (placeholder substitution at egress proxy only, now with per-task-envelope credential scoping) are the strongest implementations. No framework implements the Signed-Prompt or Encrypted Prompt patterns from the academic literature.
+**Assessment:** shisad v0.6.1's approach is the most comprehensive -- cryptographically random delimiters, character-level datamarking, three-tier context placement, provenance annotations, mandatory summary-firewall checkpoint at the TASK→COMMAND boundary, and now process-isolated control plane (Unix socket sidecar with peer credential authorization). The structured ArtifactLedger with HMAC-bound metadata MAC provides tamper detection for persisted evidence refs. v0.6.1 adds signed PromptGuard model-packs (Ed25519 manifests + SHA256 file hashes) extending supply chain integrity to ML artifacts. agentsh has the strongest audit integrity (HMAC chains with external KMS from four major cloud providers). For credential protection, ironclaw's zero-exposure model (WASM tools never see secrets, injection at host boundary, leak detection at both request and response boundaries) and shisad's credential broker (placeholder substitution at egress proxy only, with per-task-envelope credential scoping) are the strongest implementations. No framework implements the Signed-Prompt or Encrypted Prompt patterns from the academic literature.
 
 #### 3.7 Formal Methods and Semantics
 
@@ -187,7 +187,7 @@ Each framework places its primary security enforcement at a different layer:
 | **agentsh** | Redirect decision type; MCP rug-pull detection | Redirect reduces agent error loops; MCP security addresses emerging threat vector |
 | **openfang** | WASM dual metering (fuel + epoch); phantom action detection | Fuel catches compute loops, epochs catch host call abuse; phantom detection catches hallucinated tool use |
 | **ironclaw** | Adversarial test methodology with documented bypasses; extracted safety crate with fuzzing | Sets transparency standard; enables focused security testing |
-| **shisad** | First production COMMAND/TASK dual-agent architecture with immutable task envelopes; taint-sink endorsement separation (USER_REVIEWED != TRUSTED); ArtifactLedger with endorsement lifecycle + metadata MAC; approval provenance binding (non-portable across task/session boundaries); typed semantic atom validation; browser element-binding hash verification; OIDC trusted publishing with SBOM + attestations | Closest production implementation of CaMeL-inspired privilege separation; user approval doesn't upgrade trust; task envelopes carry frozen credentials/capabilities that cannot be widened; approval replay attacks blocked; supply chain is auditable from source to PyPI |
+| **shisad** | First production COMMAND/TASK dual-agent architecture with immutable task envelopes and process-isolated control plane; taint-sink endorsement separation (USER_REVIEWED != TRUSTED); ArtifactLedger with endorsement lifecycle + metadata MAC; approval provenance binding (non-portable across task/session boundaries); typed semantic atom validation; browser element-binding hash verification; OIDC trusted publishing with SBOM + attestations; **first ML-based injection classifier** (PromptGuard 2, local ONNX, signed model-packs) in open-source agent framework; **Tool Dependency Graph verification** (actions must trace to committed intent); **phantom action detection** (structured alerts on probing patterns) | Closest production implementation of CaMeL-inspired privilege separation; user approval doesn't upgrade trust; task envelopes carry frozen credentials/capabilities that cannot be widened; approval replay attacks blocked; supply chain is auditable from source to PyPI; ML classifier merges with pattern+YARA via max(); TDG blocks injected actions even when they pass other checks |
 | **openclaw** | TLA+ formal models; `openclaw security audit --deep` CLI; `dangerously*` flag convention | Unusual formal verification for application code; proactive security configuration auditing |
 | **hermes-agent** | Tirith external scanner with cosign provenance; smart (LLM) approval; supply chain CI audit | Binary integrity verification; LLM-assisted risk assessment; automated dependency attack detection |
 
@@ -218,7 +218,7 @@ Each framework places its primary security enforcement at a different layer:
 | 3 | **openfang** | 177K Rust; 1,767+ tests; single ~32MB binary; Docker + Tauri desktop |
 | 4 | **hermes-agent** | v0.6.0; 100+ test files; 14+ platform adapters; Docker + Nix; production gateway |
 | 5 | **ironclaw** | v0.22.0; fuzz targets + benchmarks; 7 build targets; systemd/launchd support |
-| 6 | **shisad** | v0.6.0; 107K lines (src+tests+scripts); 1,368 test functions (84 adversarial); OIDC trusted publishing + SBOM + attestations; Unix socket daemon; multi-channel; 7 CI jobs |
+| 6 | **shisad** | v0.6.1; 114K lines (src+tests+scripts); 1,522 test functions (86 adversarial, 70 behavioral); OIDC trusted publishing + SBOM + attestations; process-isolated control plane; PromptGuard 2; Unix socket daemon; multi-channel; 7 CI jobs |
 
 ---
 
@@ -238,15 +238,15 @@ Each framework places its primary security enforcement at a different layer:
 
 ### What Academia Has That Production Doesn't
 
-1. **Variable-level provenance tracking.** CaMeL tracks data provenance through the computation graph at the variable level. shisad v0.6.0's COMMAND/TASK split with ArtifactLedger is the closest production implementation of CaMeL-inspired architecture, but still tracks at the content-block level, not per-variable. openfang tracks at the value level but remains underintegrated with its execution loop.
+1. **Variable-level provenance tracking.** CaMeL tracks data provenance through the computation graph at the variable level. shisad v0.6.1's COMMAND/TASK split with ArtifactLedger and TDG verification is the closest production implementation of CaMeL-inspired architecture, but still tracks at the content-block level, not per-variable. openfang tracks at the value level but remains underintegrated with its execution loop.
 
 2. **Formal non-interference guarantees.** Fides and LLMbda Calculus prove that untrusted data cannot influence trusted decisions. No production system has formal proofs.
 
 3. **Causal independence detection.** MELON's dual-execution approach (testing whether an action would occur regardless of user intent) is not implemented in any production framework.
 
-4. **ML-based prompt injection classification.** LlamaFirewall's PromptGuard 2 is a production-deployed neural classifier. No open-source agent framework includes one.
+4. **ML-based prompt injection classification at scale.** LlamaFirewall's PromptGuard 2 is deployed at Meta's production scale. shisad v0.6.1 now includes the same PromptGuard 2 model as a local ONNX classifier with signed model-packs -- the first open-source agent framework to deploy an ML-based injection classifier. The gap here has narrowed from "not present" to "present but single-model."
 
-5. **Structured plan verification.** CaMeL generates restricted Python plans that can be statically analyzed. AgentArmor applies CFG/DFG/PDG analysis to execution traces. Production frameworks verify actions individually, not as execution graphs.
+5. **Structured plan verification.** CaMeL generates restricted Python plans that can be statically analyzed. AgentArmor applies CFG/DFG/PDG analysis to execution traces. shisad v0.6.1's TDG verification is the closest production approximation -- it verifies that actions trace to committed intent through dependency paths with dynamic reachability tracking -- but does not construct full CFG/DFG/PDG or require the model to generate restricted programs.
 
 ---
 
@@ -260,10 +260,10 @@ Three frameworks implement taint tracking (openfang, shisad, and partially ironc
 |-----------|-------------------|-------------------|-------------------|-------------|
 | CaMeL (reference) | Variable-level | Through computation graph | Capability tokens gate tool access | IFC with proofs |
 | openfang | Value-level (5 labels) | Union semantics | Predefined sinks block specific labels | Lattice-inspired; no proof |
-| shisad (v0.6.0) | Content-block-level (6 labels) | Worst-case union + TASK→COMMAND mandatory firewall checkpoint | PEP taint-sink rules; ArtifactLedger endorsement lifecycle; approval provenance binding; credential scoping per task envelope | IFC-inspired; COMMAND/TASK architectural separation; no formal proof |
+| shisad (v0.6.1) | Content-block-level (6 labels) | Worst-case union + TASK→COMMAND mandatory firewall checkpoint + TDG dependency path verification | PEP taint-sink rules; ArtifactLedger endorsement lifecycle; approval provenance binding; credential scoping per task envelope; TDG blocks ungrounded actions; PromptGuard 2 ML screening at ingress | IFC-inspired; COMMAND/TASK architectural separation with process-isolated control plane; no formal proof |
 | ironclaw | Content-level | Not propagated; boundary-marked | Policy rules per severity | None |
 
-The gap has narrowed: shisad v0.6.0's COMMAND/TASK separation enforces an architectural boundary where tainted content from TASK agents must pass through a mandatory summary-firewall checkpoint before reaching the orchestrator's context. The ArtifactLedger tracks endorsement state separately from taint (USER_ENDORSED does not strip UNTRUSTED taint), and approval provenance is bound to specific task/session boundaries (preventing replay). However, academic IFC still tracks provenance through the computation graph at the variable level, which production systems cannot match -- they label content blocks, not individual values within structured returns.
+The gap has narrowed further: shisad v0.6.1's COMMAND/TASK separation enforces an architectural boundary where tainted content from TASK agents must pass through a mandatory summary-firewall checkpoint before reaching the orchestrator's context, with the control plane now in a separate OS process. The ArtifactLedger tracks endorsement state separately from taint (USER_ENDORSED does not strip UNTRUSTED taint), approval provenance is bound to specific task/session boundaries (preventing replay), and the new TDG verifier ensures actions trace to committed user intent through dependency paths. v0.6.1 also adds PromptGuard 2 ML screening at the content ingress boundary, providing neural-classifier detection alongside pattern + YARA rules. However, academic IFC still tracks provenance through the computation graph at the variable level, which production systems cannot match -- they label content blocks, not individual values within structured returns.
 
 ### The MCP Security Gap
 
@@ -271,7 +271,7 @@ MCP (Model Context Protocol) is rapidly becoming the standard for agent-tool int
 
 ### The Approval Fatigue Problem
 
-Five of six frameworks implement human-in-the-loop approval for risky actions. All face the same problem: approval fatigue. shisad v0.6.0 addresses this most systematically with graduated response (auto-approve for low-risk, confirm for medium, deny for high, lockdown for anomalies), rate-limiting that triggers confirmation as limits approach, and approval provenance binding (approvals are non-portable across task/session boundaries -- approving an action in one task context cannot be replayed in another). The browser tool surface adds source/destination URL binding and element-binding hash verification so that even within a single confirmation flow, DOM drift between approval and execution fails closed. agentsh's SECURITY.md acknowledges the fatigue attack vector. This remains an unsolved UX problem that directly impacts security effectiveness.
+Five of six frameworks implement human-in-the-loop approval for risky actions. All face the same problem: approval fatigue. shisad v0.6.1 addresses this most systematically with graduated response (auto-approve for low-risk, confirm for medium, deny for high, lockdown for anomalies), rate-limiting that triggers confirmation as limits approach, approval provenance binding (approvals are non-portable across task/session boundaries), TDG verification (reduces unnecessary confirmations by grounding actions against the user's stated goal and declared resource roots), and capability elevation (per-action capability grants avoid all-or-nothing confirmation). The browser tool surface adds source/destination URL binding and element-binding hash verification so that even within a single confirmation flow, DOM drift between approval and execution fails closed. agentsh's SECURITY.md acknowledges the fatigue attack vector. This remains an unsolved UX problem that directly impacts security effectiveness.
 
 ### Languages and Safety
 
@@ -294,27 +294,27 @@ Rust provides the strongest language-level safety guarantees, which is reflected
 
 1. **Integrate taint tracking into the agent loop, not just the type system.** openfang's lattice-based taint types exist but need to be actively checked at every data flow boundary in the agent execution cycle. shisad v0.6.0's COMMAND/TASK split with mandatory summary-firewall checkpoints is the current best example of taint-aware architectural enforcement.
 
-2. **Implement MCP security controls.** agentsh's approach (tool whitelisting, version pinning, cross-server exfiltration detection) should be considered table stakes as MCP adoption grows. shisad plans MCP/A2A interop for v0.6.3.
+2. **Implement MCP security controls.** agentsh's approach (tool whitelisting, version pinning, cross-server exfiltration detection) should be considered table stakes as MCP adoption grows. shisad plans MCP/A2A access control for v0.6.3.
 
-3. **Move toward variable-level provenance.** Content-block taint tracking is useful but can't detect multi-step derivation attacks. CaMeL's approach of tracking provenance through the computation graph is the research direction most worth pursuing for production. shisad's ArtifactLedger with endorsement lifecycle is a step in this direction but still operates at the block level.
+3. **Move toward variable-level provenance.** Content-block taint tracking is useful but can't detect multi-step derivation attacks. CaMeL's approach of tracking provenance through the computation graph is the research direction most worth pursuing for production. shisad's ArtifactLedger with endorsement lifecycle and TDG verification are steps in this direction but still operate at the block level, not per-variable.
 
-4. **Add ML-based injection classification.** Pattern matching has a ceiling. Even a simple fine-tuned classifier would significantly improve detection of obfuscated injection attempts. shisad plans PromptGuard 2 integration for v0.6.1.
+4. **Add ML-based injection classification.** Pattern matching has a ceiling. Even a simple fine-tuned classifier would significantly improve detection of obfuscated injection attempts. shisad v0.6.1 now deploys PromptGuard 2 as a local ONNX classifier with signed model-packs -- other frameworks should consider similar integration.
 
-5. **Harden the supply chain end-to-end.** shisad v0.6.0 sets a new standard with OIDC trusted publishing, SBOM, build attestations, pip-audit, pinned CI actions, and adapter runtime lockdown. Other frameworks should adopt comparable measures, especially as real-world supply chain attacks against AI tooling escalate (LiteLLM compromise, ClawdHub skill poisoning).
+5. **Harden the supply chain end-to-end, including ML artifacts.** shisad v0.6.1 extends the standard set in v0.6.0 (OIDC trusted publishing, SBOM, build attestations, pip-audit, pinned CI actions, adapter runtime lockdown) with signed model-packs for PromptGuard artifacts. Other frameworks should adopt comparable measures, especially as real-world supply chain attacks against AI tooling escalate (LiteLLM compromise, ClawdHub skill poisoning). ML model supply chains are an emerging attack surface that most frameworks have not yet addressed.
 
-6. **Consider a composable defense architecture.** The ideal system would layer agentsh-style execution enforcement, openfang/shisad-style policy enforcement, and shisad-style intent analysis with COMMAND/TASK separation. No single framework needs to build all layers -- well-defined interfaces between layers would allow composition.
+6. **Consider a composable defense architecture.** The ideal system would layer agentsh-style execution enforcement, openfang/shisad-style policy enforcement, shisad-style intent analysis with COMMAND/TASK separation, and ML-based detection (PromptGuard 2 or similar). No single framework needs to build all layers -- well-defined interfaces between layers would allow composition.
 
 ### For Practitioners Choosing a Framework
 
 | If you need... | Consider |
 |----------------|----------|
 | Maximum execution-layer enforcement | **agentsh** -- deepest OS-level interposition on Linux; works with any agent framework |
-| Comprehensive security architecture | **shisad** -- most complete defense-in-depth with COMMAND/TASK separation, 10 defense layers, and end-to-end supply chain |
+| Comprehensive security architecture | **shisad** -- most complete defense-in-depth with COMMAND/TASK separation, process-isolated control plane, PromptGuard 2 ML classifier, TDG verification, 10+ defense layers, and end-to-end supply chain |
 | Strongest credential protection | **shisad** -- per-task-envelope credential scoping + proxy injection; or **ironclaw** -- zero-exposure WASM model |
 | Production maturity with security | **openclaw** -- most mature release process with substantial security infrastructure |
 | Privacy-focused local operation | **ironclaw** -- data sovereignty design with encrypted storage |
 | MCP security | **agentsh** -- only framework with comprehensive MCP security controls |
-| Supply chain hardening | **shisad** -- OIDC trusted publishing, SBOM, attestations, pip-audit, pinned CI actions, adapter lockdown |
+| Supply chain hardening | **shisad** -- OIDC trusted publishing, SBOM, attestations, pip-audit, pinned CI actions, adapter lockdown, signed ML model-packs |
 
 ### For Researchers
 
@@ -336,7 +336,7 @@ Rust provides the strongest language-level safety guarantees, which is reflected
 | openfang | [ANALYSIS-openfang.md](ANALYSIS-openfang.md) | 352 | 16 independent security systems; taint tracking underintegrated |
 | ironclaw | [ANALYSIS-ironclaw.md](ANALYSIS-ironclaw.md) | 328 | Exemplary adversarial testing; zero-exposure credentials; no TEE despite privacy focus |
 | shisad (v0.5) | [ANALYSIS-shisad-v0.5.md](ANALYSIS-shisad-v0.5.md) | 420 | Metadata-only PEP is structurally injection-proof; endorsement/taint separation novel |
-| shisad (v0.6) | [ANALYSIS-shisad-v0.6.md](ANALYSIS-shisad-v0.6.md) | 431 | COMMAND/TASK first-class; supply chain hardened; ArtifactLedger + approval provenance; browser tool surface |
+| shisad (v0.6.1) | [ANALYSIS-shisad-v0.6.md](ANALYSIS-shisad-v0.6.md) | ~600 | COMMAND/TASK first-class; process-isolated control plane; PromptGuard 2 ML classifier; TDG verification; phantom action detection; supply chain hardened |
 | openclaw | [ANALYSIS-openclaw.md](ANALYSIS-openclaw.md) | 349 | Surprisingly security-mature for baseline; TLA+ formal verification; security audit CLI |
 | hermes-agent | [ANALYSIS-hermes-agent.md](ANALYSIS-hermes-agent.md) | 366 | Strong baseline with supply chain CI, DM pairing (OWASP/NIST), tirith scanner |
 
@@ -347,3 +347,5 @@ Rust provides the strongest language-level safety guarantees, which is reflected
 Each framework was analyzed at a specific git commit (point-in-time) by reading documentation AND source code. Analysis followed a consistent structure mapped to the 7-category defense taxonomy from ANALYSIS.md (79 academic papers). Security-focused and baseline frameworks were analyzed with the same structure to enable direct comparison. Individual analyses were performed by independent research agents in parallel, then synthesized into this comparison.
 
 **Update 2026-04-04:** shisad entries updated to reflect v0.6.0 (released 2026-04-03). Changes based on source code review of shisad repo (58 commits since v0.5 analysis) and development planning/review records from shisad-dev. Other frameworks not re-analyzed -- their entries remain at the 2026-03-31 point-in-time.
+
+**Update 2026-04-06:** shisad entries updated to reflect v0.6.1 (released 2026-04-05). Changes based on source code review of shisad repo (29 commits since v0.6.0, 92 files changed, 8,805 insertions). Key additions: control-plane process isolation via Unix socket sidecar, PromptGuard 2 ML injection classifier with signed model-packs, Tool Dependency Graph verification, phantom action detection, and skill drift observability. Other frameworks not re-analyzed.
