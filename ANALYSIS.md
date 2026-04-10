@@ -64,6 +64,7 @@ LLM agents face a fundamental architectural vulnerability: **they cannot disting
 - **Indirect prompt injection (IPI):** Malicious instructions embedded in data the agent processes. The most critical and widely studied threat. The user is the victim. \[arXiv:2302.12173, arXiv:2306.05499\]
 - **Memory poisoning:** Persistent compromise via poisoned entries in long-term memory or RAG stores. Attacks persist across sessions. \[arXiv:2407.12784, arXiv:2503.03704, arXiv:2512.16962\]
 - **Tool/function supply-chain attacks:** Poisoned tool libraries or MCP servers that hijack agent behavior at the integration layer. \[arXiv:2509.24408\]
+- **LLM router supply-chain attacks:** Malicious intermediary API routers that rewrite tool-call payloads (payload injection) or silently harvest credentials (secret exfiltration) from plaintext traffic. These attacks are orthogonal to prompt injection---they operate at the JSON/transport layer, outside the model's reasoning loop. Adaptive evasion variants (dependency-targeted injection, conditional delivery) defeat finite black-box auditing. \[arXiv:2604.08407\]
 - **Privilege escalation and confused deputy:** Agents perform actions exceeding least privilege; in multi-agent systems, one agent tricks another into unauthorized operations. \[arXiv:2601.11893, arXiv:2503.15547\]
 - **Data exfiltration:** Hijacked tool calls (or malicious tools) can route sensitive data to attacker-controlled endpoints; side channels can leak information even when direct exfil is blocked. \[arXiv:2302.12173, arXiv:2306.05499, arXiv:2509.10540\]
 - **Visual/rendered prompt injection:** Attacks embedded in rendered UI elements targeting computer-use agents. \[arXiv:2506.02456, arXiv:2505.21936\]
@@ -121,6 +122,7 @@ The key insight is that the attack surface is **combinatorial**: traps from diff
 | He et al., AgentDyn \[arXiv:2602.03117\] | 2026 | Dynamic benchmark showing static-benchmark overfitting |
 | Shapira et al., "Agents of Chaos" \[arXiv:2602.20021\] | 2026 | Red-team study: 10 vulnerabilities in deployed autonomous agents over 2 weeks |
 | Franklin et al., "AI Agent Traps" \[SSRN:6372438\] | 2026 | First systematic taxonomy of environmental attacks on agents; 6 categories, 22 subcategories |
+| Liu et al., "Your Agent Is Mine" \[arXiv:2604.08407\] | 2026 | First systematic study of malicious LLM API routers; payload injection + secret exfiltration with adaptive evasion; 428 routers measured |
 
 ---
 
@@ -451,6 +453,8 @@ Based on the surveyed research, a production agent system should implement as ma
 
 - **Tool/function supply-chain attacks:** FuncPoison \[arXiv:2509.24408\] shows the attack surface; MCP's rapid growth (6,000+ servers, largely unvetted) makes this increasingly urgent. AgentBound \[arXiv:2510.21236\] is a start.
 
+- **LLM router transport integrity:** "Your Agent Is Mine" \[arXiv:2604.08407\] demonstrates that LLM API routers --- the intermediaries between agent clients and model providers --- are an undefended trust boundary. 9 of 428 commodity routers actively inject malicious code into tool-call payloads, and adaptive evasion (conditional delivery based on session features) defeats finite black-box auditing. All existing architectural defenses assume the provider's response arrives unmodified; this assumption is violated by any malicious router in the chain. The paper proposes provider-signed response envelopes (a DKIM analogue for LLM tool-call integrity) as the missing primitive, but no major provider implements response signing today.
+
 - **Visual and computer-use agent attacks:** As agents operate through GUIs and rendered content, prompt injection extends to the pixel layer \[arXiv:2506.02456, arXiv:2505.21936\]. No architectural defense addresses this yet.
 
 - **Evaluation under adaptive attack:** AgentDyn \[arXiv:2602.03117\] and "The Attacker Moves Second" \[arXiv:2510.09023\] show that most current claims don't survive stronger threat models. The field needs adversarial evaluation as standard practice.
@@ -497,6 +501,7 @@ Year reflects the year field in `references/bib/*.bib` (typically the latest arX
 | arXiv:2602.03117 | AgentDyn | 2026 | **A** |
 | arXiv:2602.20021 | Agents of Chaos (deployed agent red-team) | 2026 | **A** |
 | SSRN:6372438 | AI Agent Traps (environmental attack taxonomy) | 2026 | **A** |
+| arXiv:2604.08407 | Your Agent Is Mine (LLM router supply-chain attacks) | 2026 | **A** |
 | arXiv:2306.05499 | HouYi (PI against commercial apps) | 2025 | **B** |
 | arXiv:2403.03792 | Neural Exec (learned triggers) | 2024 | **B** |
 | arXiv:2407.12784 | AgentPoison (memory/RAG attacks) | 2024 | **B** |
