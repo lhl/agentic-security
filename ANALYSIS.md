@@ -1,6 +1,6 @@
 # Securing AI Agents: A Comprehensive Analysis
 
-**80 papers and reports | 2022--2026 | Defense-in-depth for LLM-based agent systems**
+**81 papers and reports | 2022--2026 | Defense-in-depth for LLM-based agent systems**
 
 *Compiled March 2026*
 
@@ -67,6 +67,7 @@ LLM agents face a fundamental architectural vulnerability: **they cannot disting
 - **LLM router supply-chain attacks:** Malicious intermediary API routers that rewrite tool-call payloads (payload injection) or silently harvest credentials (secret exfiltration) from plaintext traffic. These attacks are orthogonal to prompt injection---they operate at the JSON/transport layer, outside the model's reasoning loop. Adaptive evasion variants (dependency-targeted injection, conditional delivery) defeat finite black-box auditing. \[arXiv:2604.08407\]
 - **Privilege escalation and confused deputy:** Agents perform actions exceeding least privilege; in multi-agent systems, one agent tricks another into unauthorized operations. \[arXiv:2601.11893, arXiv:2503.15547\]
 - **Data exfiltration:** Hijacked tool calls (or malicious tools) can route sensitive data to attacker-controlled endpoints; side channels can leak information even when direct exfil is blocked. \[arXiv:2302.12173, arXiv:2306.05499, arXiv:2509.10540\]
+- **Owner-harm (deployer-directed):** Agents damaging the interests of the organization that deploys them---a systematically under-studied threat class distinct from generic criminal harm. Real incidents include Slack AI credential exfiltration, Microsoft 365 Copilot calendar-injection leaks, and unauthorized autonomous actions. Existing benchmarks (AgentHarm, AgentDojo) model third-party victims, not the deployer; a compositional safety system can score 100% TPR on generic harm yet only 14.8% on owner-harm. Requires owner-context dimensions (resource ownership, trust boundary, authorization scope) that generic defenses lack. \[arXiv:2604.18658\]
 - **Visual/rendered prompt injection:** Attacks embedded in rendered UI elements targeting computer-use agents. \[arXiv:2506.02456, arXiv:2505.21936\]
 - **Browser-specific attacks:** Prompt injection tailored to web-browsing agents. \[arXiv:2511.20597\]
 
@@ -123,6 +124,7 @@ The key insight is that the attack surface is **combinatorial**: traps from diff
 | Shapira et al., "Agents of Chaos" \[arXiv:2602.20021\] | 2026 | Red-team study: 10 vulnerabilities in deployed autonomous agents over 2 weeks |
 | Franklin et al., "AI Agent Traps" \[SSRN:6372438\] | 2026 | First systematic taxonomy of environmental attacks on agents; 6 categories, 22 subcategories |
 | Liu et al., "Your Agent Is Mine" \[arXiv:2604.08407\] | 2026 | First systematic study of malicious LLM API routers; payload injection + secret exfiltration with adaptive evasion; 428 routers measured |
+| Zhang & Jiang, "Owner-Harm" \[arXiv:2604.18658\] | 2026 | Formal threat model for deployer-directed agent harm; 8 categories; quantifies defense gap (100%→14.8%); SSDG framework; layer complementarity evidence |
 
 ---
 
@@ -351,6 +353,7 @@ The field's evaluation infrastructure has grown rapidly but still has significan
 | **"The Attacker Moves Second"** \[arXiv:2510.09023\] | 2025 | Preprint | Meta-evaluation: adaptive attacks vs. 12 defenses |
 | **SaTML CTF** | 2024 | NeurIPS 2024 | Practical prompt injection competition |
 | **SPML** \[arXiv:2402.11755\] | 2024 | Preprint | DSL-based task deviation detection benchmark |
+| **Owner-Harm Benchmark** \[arXiv:2604.18658\] | 2026 | Preprint | 450-scenario diagnostic benchmark across 8 owner-harm categories; post-hoc, not held-out |
 
 Note: prompt-only defenses such as **Spotlighting** can appear effective on static evaluations, but break under adaptive attack. \[arXiv:2403.14720, arXiv:2510.09023\]
 
@@ -358,7 +361,7 @@ Note: prompt-only defenses such as **Spotlighting** can appear effective on stat
 
 ## 5. Production Readiness
 
-**The reality check:** Of 78 papers surveyed, exactly one framework explicitly reports production deployment.
+**The reality check:** Of 79 papers surveyed, exactly one framework explicitly reports production deployment.
 
 ### Framework Comparison Matrix
 
